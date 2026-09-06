@@ -189,15 +189,19 @@ struct PanelRootView: View {
     private static let bottomAnchor = "vervellum.bottom"
     private static let scrollSpace = "vervellum.scroll"
 
-    /// The anchor can hang this far below the viewport before following gives up. Wide
-    /// enough that a normal streamed chunk (a few points of growth before the scroll
-    /// lands) never trips it; narrow enough that two paragraphs of deliberate scrolling
-    /// up does.
-    private static let followDropThreshold: CGFloat = 120
+    /// The anchor can hang this far below the viewport before following gives up.
+    /// Deliberately generous — about half a laptop panel — for two reasons:
+    /// * A coalesced streaming batch (up to ~100 ms of tokens in one layout pass)
+    ///   can grow the answer by 100–150 pt, and that growth must never read as a
+    ///   reader scrolling away — including when the geometry report lands before the
+    ///   scroll decision for the same update.
+    /// * Scrolling up is a deliberate act measured in viewports, and half of one is
+    ///   the smallest gesture that is unmistakably it.
+    private static let followDropThreshold: CGFloat = 350
     /// Once given up, the reader must come back this close to the bottom before the
     /// stream is followed again. The gap between the two thresholds is hysteresis —
     /// without it, jitter right at the boundary would flip following on and off.
-    private static let followSnapThreshold: CGFloat = 40
+    private static let followSnapThreshold: CGFloat = 60
 
     private func updateFollowing() {
         guard let bottomAnchorY, let viewportHeight else { return }
