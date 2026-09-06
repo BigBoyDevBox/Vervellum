@@ -1,0 +1,88 @@
+# Vervellum Privacy Policy
+
+Effective September 5, 2026
+
+Vervellum does not operate an account or analytics service, and it does not sell
+personal data. It contains no advertising, telemetry, or tracking. There is no
+Vervellum server: the app talks only to the endpoints you configure and to GitHub.
+
+## What leaves this Mac
+
+Vervellum makes network requests in exactly three cases, each with a fixed purpose.
+
+- **Research.** When you ask a question, Vervellum sends it — together with the earlier
+  turns in that thread and the search results it retrieved — to the two endpoints you
+  entered in Settings ▸ Providers: an OpenAI-compatible model endpoint, and a web-search
+  server. Nothing is sent until you press Return. These are third-party services chosen
+  by you, and what they do with the request is governed by their policies, not this
+  one. Vervellum has no way to recall what was sent.
+- **Search queries.** The queries themselves are written by the model from your
+  question and sent to the search server. They are shown to you in the panel's process
+  trail before the answer arrives.
+- **Update checks.** Vervellum asks GitHub's public releases API whether a newer version
+  exists — on launch and about once a day while automatic checks are enabled (they can
+  be turned off in Settings), or when you choose Check for Updates. The request contains
+  no system profile or identifiers; the app identifies itself only by its bundle
+  identifier. Choosing **Download** saves the release file from GitHub to `~/Downloads`
+  and reveals it in the Finder — Vervellum never installs updates automatically.
+
+Like any network request, these services receive ordinary connection metadata such as
+your IP address.
+
+## What stays on your machine
+
+- **Threads.** Questions, answers, verdicts and source lists are stored as JSON,
+  readable only by your account — in Vervellum's Application Support folder on macOS,
+  and under `$XDG_DATA_HOME` (usually `~/.local/share/vervellum`) on Linux. Turning
+  history off **deletes** the file rather than hiding it, and "Delete all…" removes it
+  immediately.
+- **Preferences.** Panel position, size, text scale, shortcuts and behaviour toggles
+  live in Vervellum's application preferences on macOS, and in
+  `~/.config/vervellum/settings.json` on Linux.
+- **API keys.** In your login Keychain on macOS. On Linux, in your login keyring when
+  one is available; otherwise read from `VERVELLUM_MODEL_KEY` and `VERVELLUM_SEARCH_KEY`,
+  or from a mode-0600 file — the app says which. In every case they are never written to
+  preferences, never included in a stored thread, and never written to a log.
+
+## The selection shortcut (macOS only)
+
+The optional "Research the Selection" shortcut reads the selected text from the app you
+were using, through macOS's Accessibility permission. There is no Linux equivalent. It is off by default and reads
+the selection only at the moment you press the shortcut — never in the background, and
+never anything else the permission would allow.
+
+Before that text reaches the composer, Vervellum removes values that look like
+credentials — API keys, tokens, private-key blocks, `KEY=value` lines, URLs with
+embedded passwords — and tells you how many it removed. This reduces accidental
+disclosure; it cannot catch a secret that looks like ordinary text, so read what you
+are about to send. The behaviour can be turned off in Settings ▸ Shortcuts.
+
+Because macOS ties this permission to an app's code signature and released builds are
+ad-hoc signed, the grant is reset by every update. Vervellum says so when that happens.
+
+## Logging
+
+Vervellum writes diagnostic lines to the unified system log under its own subsystem:
+stage names, durations, counts and sizes, tagged with a short per-run identifier.
+Questions, answers, search queries, retrieved content, API keys and provider error text
+are deliberately excluded, so the log is safe to attach to a bug report.
+
+## The keyboard shortcut on Linux
+
+Vervellum does not monitor the keyboard. On first launch it asks GNOME to run
+`gapplication action ch.lkmc.Vervellum toggle` on a key combination, by writing one custom
+keybinding through `gsettings`; the desktop owns the grab and Vervellum only sees the
+resulting request. It writes that binding once and never overwrites a shortcut you have
+since changed. `vervellum --install-shortcut` re-runs it; the entry is visible and
+removable in Settings ▸ Keyboard ▸ Custom Shortcuts.
+
+## Removal
+
+Removing Vervellum and its application data removes the stored threads and preferences —
+`~/.config/vervellum` and `~/.local/share/vervellum` on Linux. API keys are removed by
+clearing them in Settings ▸ Providers on macOS, by deleting the "Vervellum" items from
+Keychain Access, or on Linux with
+`secret-tool clear service ch.lkmc.Vervellum account model-api-key`.
+
+Questions can be asked through the project's GitHub repository; please report security
+vulnerabilities privately, as described in [SECURITY.md](SECURITY.md).

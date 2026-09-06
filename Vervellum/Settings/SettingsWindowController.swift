@@ -1,0 +1,81 @@
+import AppKit
+import SwiftUI
+
+extension Notification.Name {
+    /// Posted when the Settings window closes, so the panel can re-read anything that
+    /// might have changed — chiefly whether the providers are configured, which needs a
+    /// Keychain hit and so is sampled rather than computed.
+    static let vervellumSettingsDidClose = Notification.Name("VervellumSettingsDidCloseNotification")
+}
+
+/// Hosts the SwiftUI settings in a standard titled window.
+///
+/// An `.accessory` app has no menu bar and no `Settings` scene, so the window is
+/// presented on demand — and the app switches to `.regular` while it is open, because
+/// a window that cannot take focus is a window whose text fields cannot be typed in.
+/// It reverts to `.accessory` on close so the Dock icon does not linger.
+final class SettingsWindowController: NSObject, NSWindowDelegate {
+
+    private var window: NSWindow?
+    private let preferences: Preferences
+    private let store: ThreadStore
+    private let updateChecker: UpdateChecker
+    private let onShortcutsChanged: () -> Void
+
+    private weak var appToRestoreOnClose: NSRunningApplication?
+
+    init(preferences: Preferences,
+         store: ThreadStore,
+         updateChecker: UpdateChecker,
+         onShortcutsChanged: @escaping () -> Void) {
+        self.preferences = preferences
+        self.store = store
+        self.updateChecker = updateChecker
+        self.onShortcutsChanged = onShortcutsChanged
+    }
+
+    func show() {
+        if NSApp.activationPolicy() != .regular {
+            let frontmost = NSWorkspace.shared.frontmostApplication
+            appToRestoreOnClose = frontmost?.processIdentifier
+                == NSRunningApplication.current.processIdentifier ? nil : frontmost
+        }
+
+        if window == nil {
+            let root = SettingsView(preferences: preferences,
+                                    store: store,
+                                    updateChecker: updateChecker,
+                                    onShortcutsChanged: onShortcutsChanged)
+            let hosting = NSHostingController(rootView: root)
+            hosting.sizingOptions = [.minSize]
+
+            let window = NSWindow(contentViewController: hosting)
+            window.title = "Vervellum Settings"
+            window.styleMask = [.titled, .closable, .miniaturizable, .resizable]
+            window.setContentSize(NSSize(width: 560, height: 520))
+            window.isReleasedWhenClosed = false
+            window.delegate = self
+            window.center()
+            window.setFrameAutosaveName("VervellumSettingsWindow")
+            self.window = window
+        }
+
+        NSApp.setActivationPolicy(.regular)
+        NSApp.activate()
+        // Ordering a miniaturized window front does not deminiaturize it — "Settings…"
+        // would appear to do nothing while the window sat in the Dock.
+        if window?.isMiniaturized == true { window?.deminiaturize(nil) }
+        window?.makeKeyAndOrderFront(nil)
+    }
+
+    func windowWillClose(_ notification: Notification) {
+        NotificationCenter.default.post(name: .vervellumSettingsDidClose, object: nil)
+        let restore = appToRestoreOnClose
+        appToRestoreOnClose = nil
+        NSApp.revertToAccessoryIfNoOrdinaryWindows(excluding: window)
+        if let restore, !restore.isTerminated {
+            NSApp.yieldActivation(to: restore)
+            restore.activate(options: [.activateAllWindows])
+        }
+    }
+}

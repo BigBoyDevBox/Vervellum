@@ -1,0 +1,34 @@
+[Desktop Entry]
+Type=Application
+Name=Vervellum
+GenericName=Research Panel
+Comment=Ask a question; get an answer that cites only what it found
+Exec=vervellum
+Icon=ch.lkmc.Vervellum
+Terminal=false
+Categories=Utility;Office;
+Keywords=research;search;llm;citations;
+StartupWMClass=ch.lkmc.Vervellum
+DBusActivatable=true
+Actions=toggle;install-shortcut;
+# Version 1.5 is rejected outright by Ubuntu's desktop-file-validate; 1.4 is the
+# highest that passes.
+Version=1.4
+
+# A visible entry, not NoDisplay=true. A user who forgets the shortcut, or whose
+# keybinding got clobbered by another app, otherwise has no way back into the
+# application at all.
+
+# The action identifiers are the GApplication action names, exactly. With
+# DBusActivatable=true GNOME does not run an action's Exec line: it calls
+# org.freedesktop.Application.ActivateAction over the bus with the identifier, and
+# GApplication looks that name up in its action map — a mismatch does nothing, silently.
+# The Exec lines are the fallback for a launcher that does not speak D-Bus activation.
+
+[Desktop Action toggle]
+Name=Toggle Panel
+Exec=gapplication action ch.lkmc.Vervellum toggle
+
+[Desktop Action install-shortcut]
+Name=Set Up Keyboard Shortcut
+Exec=vervellum --install-shortcut

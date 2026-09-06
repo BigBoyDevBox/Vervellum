@@ -1,0 +1,220 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']        # e.g. v1.2.0
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write       # needed to create the GitHub Release
+
+env:
+  PROJECT: Vervellum.xcodeproj
+  SCHEME: Vervellum
+  APP_NAME: Vervellum
+
+jobs:
+  # The Linux package is built first and handed to the release job as an artifact, so a
+  # broken .deb fails the tag *before* a GitHub Release exists to attach anything to.
+  linux:
+    name: Build the Debian package
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    # The official Swift image for the target Ubuntu release. A .deb links against the
+    # library versions present at build time, so building on anything newer produces a
+    # package that will not install on 24.04.
+    container:
+      image: swift:6.1-noble
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install build dependencies
+        run: |
+          apt-get update
+          DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            libgtk-4-dev pkg-config dpkg-dev binutils desktop-file-utils
+
+      - name: Version from tag
+        run: echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
+
+      # The same gate the macOS job applies: with no signing downstream, the suite is
+      # the only automated quality check, and these are the shared rules.
+      - name: Test the shared core
+        run: swift test --parallel
+
+      - name: Package
+        run: packaging/build-deb.sh "$VERSION"
+
+      - name: Install the package
+        run: |
+          dpkg --install --force-depends build/vervellum_${VERSION}_*.deb
+          /usr/bin/vervellum --version
+
+      - name: Upload the package
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: vervellum-deb
+          path: build/*.deb
+          if-no-files-found: error
+
+  release:
+    name: Build & publish (unsigned)
+    needs: linux
+    runs-on: macos-26
+    timeout-minutes: 45   # don't let a wedged xcodebuild stall a release for 6h
+    steps:
+      # Actions are pinned to immutable commit SHAs: a mutable tag can be repointed
+      # at tampered code, a commit SHA cannot. This workflow holds contents:write and
+      # produces the exact bytes the in-app updater ships to every user, so it gets
+      # the same pin-and-verify discipline zai-code-review.yml already uses.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Nothing in this job runs git after checkout; don't leave a
+          # contents:write token sitting in .git/config for the whole build.
+          persist-credentials: false
+
+      - name: Select Xcode
+        uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90 # v1.7.0
+        with:
+          xcode-version: '26.0'
+
+      - name: Install tooling
+        run: brew install xcbeautify create-dmg
+
+      - name: Version from tag
+        run: echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
+
+      - name: Fetch the Debian package
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: vervellum-deb
+          path: ${{ runner.temp }}/linux
+
+      # Gate the release on the test suite. With no signing/notarization downstream,
+      # tests are the only automated quality check — a tag on a broken commit must not
+      # publish a release the in-app updater immediately offers to everyone.
+      - name: Test
+        run: |
+          set -o pipefail
+          xcodebuild test \
+            -project "$PROJECT" -scheme "$SCHEME" \
+            -destination 'platform=macOS' \
+            -resultBundlePath TestResults.xcresult \
+            CODE_SIGNING_ALLOWED=NO | xcbeautify
+
+      - name: Upload test results on failure
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: ReleaseTestResults
+          path: TestResults.xcresult
+          if-no-files-found: ignore
+
+      - name: Build (Release, no Developer ID signing)
+        run: |
+          set -o pipefail
+          xcodebuild build \
+            -project "$PROJECT" -scheme "$SCHEME" -configuration Release \
+            -derivedDataPath "$RUNNER_TEMP/DerivedData" \
+            -destination 'generic/platform=macOS' \
+            MARKETING_VERSION="$VERSION" CURRENT_PROJECT_VERSION="${{ github.run_number }}" \
+            CODE_SIGNING_ALLOWED=NO | xcbeautify
+
+      - name: Locate & ad-hoc sign the app
+        run: |
+          APP=$(find "$RUNNER_TEMP/DerivedData/Build/Products/Release" -maxdepth 1 -name "$APP_NAME.app" -print -quit)
+          [ -n "$APP" ] || { echo "::error::built $APP_NAME.app not found"; exit 1; }
+          # Ad-hoc sign (identity "-"): no certificate, keychain, or API key required,
+          # but it IS required for the app to launch on Apple Silicon. This is not a
+          # Developer ID signature and the app is not notarized — Gatekeeper still warns.
+          codesign --force --deep --sign - "$APP"
+          echo "APP_PATH=$APP" >> "$GITHUB_ENV"
+
+      - name: Package zip + DMG
+        run: |
+          ZIP="$RUNNER_TEMP/$APP_NAME-$VERSION.zip"
+          DMG="$RUNNER_TEMP/$APP_NAME-$VERSION.dmg"
+          ditto -c -k --keepParent "$APP_PATH" "$ZIP"
+          # create-dmg can exit non-zero on a headless runner even on success — verify the file.
+          create-dmg \
+            --volname "$APP_NAME $VERSION" \
+            --window-size 540 380 \
+            --icon-size 100 \
+            --icon "$APP_NAME.app" 150 185 \
+            --app-drop-link 390 185 \
+            "$DMG" "$APP_PATH" || true
+          [ -f "$DMG" ] || { echo "::error::DMG was not created"; exit 1; }
+          # create-dmg's exit code is unreliable, so verify the image itself: a
+          # truncated/corrupt DMG must not ship as the release's preferred asset.
+          hdiutil verify "$DMG" || { echo "::error::DMG failed hdiutil verification — the image is corrupt or truncated"; exit 1; }
+          echo "ZIP=$ZIP" >> "$GITHUB_ENV"
+          echo "DMG=$DMG" >> "$GITHUB_ENV"
+          DEB=$(find "$RUNNER_TEMP/linux" -name '*.deb' -print -quit)
+          [ -n "$DEB" ] || { echo "::error::the Debian package was not produced"; exit 1; }
+          echo "DEB=$DEB" >> "$GITHUB_ENV"
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
+        with:
+          name: ${{ env.APP_NAME }} ${{ env.VERSION }}
+          files: |
+            ${{ env.DMG }}
+            ${{ env.ZIP }}
+            ${{ env.DEB }}
+          # A pre-release tag (contains a hyphen, e.g. v1.1.0-beta.1) must be marked as a
+          # prerelease and NOT made "latest" — otherwise the in-app updater's
+          # releases/latest fetch offers the beta to every stable user, silently defeating
+          # its allowPrereleases gate.
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          make_latest: ${{ !contains(github.ref_name, '-') }}
+          generate_release_notes: true
+          body: |
+            ### Unsigned build
+
+            This app is **not** code-signed with a Developer ID or notarized, so macOS
+            Gatekeeper will warn on first launch. To open it:
+
+            - **Right-click** (or Control-click) the app → **Open** → **Open**, or
+            - run `xattr -dr com.apple.quarantine /Applications/${{ env.APP_NAME }}.app`
+
+            ### Linux (Ubuntu 24.04+)
+
+            ```
+            sudo apt install ./vervellum_${{ env.VERSION }}_amd64.deb
+            vervellum --install-shortcut
+            ```
+
+            The package is not signed either. `vervellum --ask "…"` works with no
+            desktop session at all.
+
+      # Never trust an upload: download what GitHub actually serves for the tag and
+      # byte-compare it against what was just built. A truncated or corrupt upload
+      # would otherwise ship silently — and the in-app updater offers these exact
+      # assets to every user. (Same distrust as the hdiutil verify above.)
+      - name: Verify published assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir "$RUNNER_TEMP/published"
+          gh release download "$GITHUB_REF_NAME" --dir "$RUNNER_TEMP/published" \
+            --pattern "$(basename "$ZIP")" --pattern "$(basename "$DMG")" \
+            --pattern "$(basename "$DEB")"
+          failed=0
+          for f in "$ZIP" "$DMG" "$DEB"; do
+            if ! cmp -- "$f" "$RUNNER_TEMP/published/$(basename "$f")"; then
+              # The published copy provably differs from what was built: take it
+              # down before failing, so the in-app updater can't keep serving
+              # corrupt bytes while someone investigates. Keep checking, so a
+              # second bad asset is also caught and removed in the same run.
+              gh release delete-asset "$GITHUB_REF_NAME" "$(basename "$f")" -y \
+                || echo "::warning::failed to remove mismatched asset $(basename "$f") — take it down manually"
+              echo "::error::published $(basename "$f") differed from the built artifact and was removed"
+              failed=1
+            fi
+          done
+          [ "$failed" -eq 0 ] || exit 1

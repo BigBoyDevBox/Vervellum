@@ -1,0 +1,119 @@
+import SwiftUI
+
+/// Panel behaviour, history, and updates.
+struct GeneralView: View {
+
+    @ObservedObject var preferences: Preferences
+    @ObservedObject var store: ThreadStore
+    @ObservedObject var updateChecker: UpdateChecker
+
+    @State private var showsEraseConfirmation = false
+
+    var body: some View {
+        SettingsPane {
+            SettingsSection(
+                title: "Panel",
+                footnote: "The panel opens on whichever screen your pointer is on, and floats above "
+                    + "full-screen apps without switching Spaces.") {
+                Picker("Position", selection: Binding(
+                    get: { preferences.panelSide },
+                    set: { preferences.panelSide = $0 })) {
+                    ForEach(PanelSide.allCases) { side in
+                        Text(side.label).tag(side)
+                    }
+                }
+                .pickerStyle(.segmented)
+
+                LabeledContent("Width") {
+                    HStack {
+                        Slider(value: Binding(
+                            get: { Double(preferences.panelWidth) },
+                            set: { preferences.panelWidth = CGFloat($0) }),
+                               in: Double(PanelPlacement.minimumWidth)...Double(PanelPlacement.maximumWidth))
+                        Text("\(Int(preferences.panelWidth)) pt")
+                            .font(.system(size: 11, design: .monospaced))
+                            .foregroundStyle(.secondary)
+                            .frame(width: 52, alignment: .trailing)
+                    }
+                }
+
+                LabeledContent("Text size") {
+                    HStack {
+                        Slider(value: Binding(
+                            get: { preferences.textScale },
+                            set: { preferences.textScale = $0 }), in: 0.85...1.4)
+                        Text(String(format: "%.0f%%", preferences.textScale * 100))
+                            .font(.system(size: 11, design: .monospaced))
+                            .foregroundStyle(.secondary)
+                            .frame(width: 52, alignment: .trailing)
+                    }
+                }
+            }
+
+            SettingsSection(
+                title: "Behaviour",
+                footnote: "Dismissing on focus loss makes the panel behave like Spotlight. It is off "
+                    + "by default because research takes tens of seconds and the answer is meant to "
+                    + "be read while you work — even with it on, a running search keeps the panel up.") {
+                Toggle("Close the panel when it loses focus", isOn: Binding(
+                    get: { preferences.dismissOnFocusLoss },
+                    set: { preferences.dismissOnFocusLoss = $0 }))
+                Toggle("Show what each search did", isOn: Binding(
+                    get: { preferences.showProcessTrail },
+                    set: { preferences.showProcessTrail = $0 }))
+                Toggle("Return sends the question (Shift-Return for a new line)", isOn: Binding(
+                    get: { preferences.submitOnReturn },
+                    set: { preferences.submitOnReturn = $0 }))
+                Toggle("Launch Vervellum at login", isOn: Binding(
+                    get: { preferences.launchAtLogin },
+                    set: { preferences.launchAtLogin = $0 }))
+            }
+
+            SettingsSection(
+                title: "History",
+                footnote: "Threads are stored as JSON in Vervellum's Application Support folder, "
+                    + "readable only by you. Turning history off deletes the file — it does not "
+                    + "merely hide it.") {
+                Toggle("Keep past threads", isOn: Binding(
+                    get: { preferences.historyEnabled },
+                    set: { enabled in
+                        preferences.historyEnabled = enabled
+                        store.isHistoryEnabled = enabled
+                    }))
+                HStack {
+                    Text("\(store.library.threads.count) thread\(store.library.threads.count == 1 ? "" : "s") stored")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Button("Delete all…") { showsEraseConfirmation = true }
+                        .disabled(store.library.threads.isEmpty)
+                }
+            }
+
+            SettingsSection(
+                title: "Updates",
+                footnote: "Vervellum asks GitHub whether a newer release exists. It never installs "
+                    + "one on its own: choosing Download saves the file to your Downloads folder "
+                    + "and reveals it in the Finder.") {
+                Toggle("Check for updates automatically", isOn: $updateChecker.automaticChecksEnabled)
+                HStack {
+                    Button("Check Now") { updateChecker.checkNow() }
+                        .disabled(updateChecker.isChecking)
+                    if let last = updateChecker.lastCheckDate {
+                        Text("Last checked \(last.formatted(date: .abbreviated, time: .shortened))")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                }
+            }
+        }
+        .confirmationDialog("Delete every stored thread?",
+                            isPresented: $showsEraseConfirmation) {
+            Button("Delete All", role: .destructive) { store.deleteAll() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This removes the threads file from disk. It cannot be undone.")
+        }
+    }
+}

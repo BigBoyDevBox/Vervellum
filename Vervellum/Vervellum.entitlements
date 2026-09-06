@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!--
+	  Vervellum is NOT sandboxed, and this file deliberately enables no App Sandbox
+	  key. The optional "research the selection" feature reads the frontmost app's
+	  selected text through the Accessibility API, and a sandboxed app can never hold
+	  that permission — AXIsProcessTrusted() is always false and the app cannot even
+	  be added in System Settings. That rules out the Mac App Store.
+
+	  No other entitlement is needed: the global shortcut uses Carbon's
+	  RegisterEventHotKey (permission-free), and outside the sandbox the Hardened
+	  Runtime does not gate outgoing network connections.
+
+	  WHAT CI ACTUALLY SHIPS: release.yml produces an **ad-hoc signed, unsigned,
+	  un-notarized** build. `codesign --sign -` is the minimum required to launch on
+	  Apple Silicon; it is not a Developer ID signature, so Gatekeeper warns on first
+	  launch. ENABLE_HARDENED_RUNTIME applies to a locally signed build; the ad-hoc CI
+	  build carries no embedded entitlements.
+
+	  CONSEQUENCE, and it is a real one: TCC keys the Accessibility grant to the code
+	  signature — the cdhash for an ad-hoc signature. An ad-hoc cdhash changes with
+	  every build, so **every update silently invalidates the user's Accessibility
+	  grant** and "research the selection" stops working until they re-grant it.
+	  Vervellum detects this and says so rather than failing quietly. Moving to a
+	  Developer ID signature (which TCC keys by Team ID + bundle ID instead) is the
+	  fix, and is the top item in the backlog for that reason.
+	-->
+</dict>
+</plist>

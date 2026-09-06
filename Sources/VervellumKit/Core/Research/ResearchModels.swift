@@ -1,0 +1,293 @@
+import Foundation
+
+/// One web source Vervellum actually fetched, as offered to the model and shown to
+/// the user. The `number` is the citation index the model must use — one-based,
+/// because that is what reads naturally in prose.
+struct Source: Codable, Identifiable, Equatable {
+    var id: UUID = UUID()
+    /// One-based citation number, stable for the life of the turn.
+    var number: Int
+    var url: String
+    var title: String
+    var snippet: String
+    /// Explicitly defaulted so the memberwise initializer can omit it.
+    var publishedAt: String? = nil
+
+    /// The registrable-looking host, for a compact source chip ("apple.com").
+    var domain: String {
+        guard let host = URLComponents(string: url)?.host else { return url }
+        return host.hasPrefix("www.") ? String(host.dropFirst(4)) : host
+    }
+
+    enum CodingKeys: String, CodingKey { case id, number, url, title, snippet, publishedAt }
+}
+
+/// A search the model asked for, with the arguments it wrote.
+///
+/// The arguments are a free-form JSON object shaped by the search tool's own
+/// `inputSchema`, which Vervellum does not get to choose — so they are carried as
+/// encoded JSON text and re-parsed at call time. That also makes the turn Codable
+/// without a heterogeneous-dictionary encoder.
+struct PlannedSearch: Codable, Identifiable, Equatable {
+    var id: UUID = UUID()
+    /// A short phrase naming what this search is meant to settle.
+    var purpose: String
+    /// The raw arguments object, JSON-encoded.
+    var argumentsJSON: String
+
+    init(id: UUID = UUID(), purpose: String, argumentsJSON: String) {
+        self.id = id
+        self.purpose = purpose
+        self.argumentsJSON = argumentsJSON
+    }
+
+    init?(purpose: String, arguments: [String: Any]) {
+        guard JSONSerialization.isValidJSONObject(arguments),
+              let data = try? JSONSerialization.data(withJSONObject: arguments, options: [.sortedKeys]),
+              let text = String(data: data, encoding: .utf8)
+        else { return nil }
+        self.init(purpose: purpose, argumentsJSON: text)
+    }
+
+    var arguments: [String: Any] {
+        guard let data = argumentsJSON.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else { return [:] }
+        return object
+    }
+
+    /// The most query-like string in the arguments, for display. Search tools name
+    /// this field inconsistently, so the common spellings are tried in order before
+    /// falling back to the longest string value.
+    var displayQuery: String {
+        let arguments = self.arguments
+        for key in ["search_query", "query", "q", "keyword", "keywords", "text"] {
+            if let value = arguments[key] as? String, !value.isEmpty { return value }
+        }
+        let strings = arguments.values.compactMap { $0 as? String }
+        return strings.max(by: { $0.count < $1.count }) ?? purpose
+    }
+}
+
+/// The verdict on one claim.
+///
+/// The five cases are exhaustive on purpose: every claim an answer rests on is
+/// either settled by the evidence one way, settled partly, not settled, or not the
+/// kind of thing evidence settles. Collapsing "we found nothing" into "false" is the
+/// single most damaging thing a research tool can do, so `insufficient` is a
+/// first-class verdict rather than an error state.
+enum Verdict: String, Codable, CaseIterable, Equatable {
+    case supported
+    case contradicted
+    case mixed
+    case insufficient
+    case opinion
+
+    /// Whether a verdict of this kind is only meaningful with a citation.
+    var requiresSources: Bool {
+        switch self {
+        case .supported, .contradicted, .mixed: return true
+        case .insufficient, .opinion: return false
+        }
+    }
+
+    var label: String {
+        switch self {
+        case .supported: return "Supported"
+        case .contradicted: return "Contradicted"
+        case .mixed: return "Mixed"
+        case .insufficient: return "Not established"
+        case .opinion: return "Opinion"
+        }
+    }
+
+    /// SF Symbol shown on the verdict chip.
+    var symbolName: String {
+        switch self {
+        case .supported: return "checkmark.seal"
+        case .contradicted: return "xmark.seal"
+        case .mixed: return "arrow.triangle.branch"
+        case .insufficient: return "questionmark.circle"
+        case .opinion: return "bubble.left.and.bubble.right"
+        }
+    }
+}
+
+/// One assessed claim.
+struct Finding: Codable, Identifiable, Equatable {
+    var id: UUID = UUID()
+    var claim: String
+    var verdict: Verdict
+    var reasoning: String
+    /// One-based source numbers, already checked to be in range.
+    var sourceNumbers: [Int]
+
+    enum CodingKeys: String, CodingKey { case id, claim, verdict, reasoning, sourceNumbers }
+}
+
+/// How far along a turn is. Drives the progress trail in the UI.
+enum ResearchStage: String, Codable, Equatable {
+    case queued
+    case planning
+    case searching
+    case answering
+    case assessing
+    case complete
+    case failed
+    case cancelled
+
+    var isTerminal: Bool {
+        switch self {
+        case .complete, .failed, .cancelled: return true
+        default: return false
+        }
+    }
+
+    var label: String {
+        switch self {
+        case .queued: return "Queued"
+        case .planning: return "Planning searches"
+        case .searching: return "Searching the web"
+        case .answering: return "Writing the answer"
+        case .assessing: return "Checking claims"
+        case .complete: return "Done"
+        case .failed: return "Failed"
+        case .cancelled: return "Cancelled"
+        }
+    }
+}
+
+/// A caveat Vervellum itself attaches to a turn, distinct from the model's own
+/// stated limitations. These are facts about the *run*, not about the subject.
+enum TurnNotice: String, Codable, Equatable {
+    /// Older turns were left out of the model's context to fit the size budget.
+    case contextTrimmed
+    /// Some retrieved sources did not fit the evidence budget and were never shown to
+    /// the model.
+    case evidenceTrimmed
+    /// The model cited a source number that does not exist.
+    case invalidCitation
+    /// The model wrote a literal URL despite being told to cite by number.
+    case literalURL
+    /// The answer was produced with no web evidence at all.
+    case noEvidence
+    /// A verdict was dropped because it named no source.
+    case uncitedVerdictDropped
+
+    var message: String {
+        switch self {
+        case .contextTrimmed:
+            return "Earlier turns in this thread were left out to fit the model's context."
+        case .evidenceTrimmed:
+            return "Some sources were found but not shown to the model, because the "
+                + "evidence would not fit its context. The answer could not have used them."
+        case .invalidCitation:
+            return "The model referred to a source number that does not exist. Those references were left as plain text."
+        case .literalURL:
+            return "The model wrote a link directly instead of citing a source number. Treat any such link as unverified."
+        case .noEvidence:
+            return "Answered without web evidence. Nothing here is source-backed."
+        case .uncitedVerdictDropped:
+            return "A verdict that cited no source was discarded."
+        }
+    }
+}
+
+/// One question and everything the research produced for it.
+struct ResearchTurn: Codable, Identifiable, Equatable {
+    var id: UUID = UUID()
+    var question: String
+    var askedAt: Date
+    var stage: ResearchStage = .queued
+
+    /// One sentence stating how the model read the question.
+    var reading: String = ""
+    var searches: [PlannedSearch] = []
+    var sources: [Source] = []
+    /// The streamed markdown answer, with `[n]` citations.
+    var answer: String = ""
+    var findings: [Finding] = []
+    var limitations: String = ""
+    var followups: [String] = []
+    var notices: [TurnNotice] = []
+    /// A user-facing failure message when `stage == .failed`.
+    var failure: String?
+    /// Wall-clock seconds from ask to terminal stage.
+    var duration: TimeInterval?
+    /// The model that produced the answer, recorded because a thread can outlive a
+    /// settings change and a verdict is only meaningful with the model attached.
+    var model: String = ""
+
+    init(question: String, askedAt: Date = Date()) {
+        self.question = question
+        self.askedAt = askedAt
+    }
+
+    /// Whether this turn was asked with `/direct`.
+    ///
+    /// Derived rather than stored, so the on-disk document did not have to change. Both
+    /// front ends attach `noEvidence` when a turn is *created* in direct mode; the runner
+    /// attaches the same notice when the planner decided a question needed no search.
+    /// The two are told apart by `reading`: the planner writes one, and direct mode
+    /// never runs the planner. Retry uses this to re-ask the way the user asked.
+    var wasAskedDirectly: Bool {
+        notices.contains(.noEvidence) && reading.isEmpty
+    }
+
+    /// Records a notice once. Notices are a set in spirit but an array on disk, so
+    /// that a document written by a newer build keeps its order when read back.
+    mutating func addNotice(_ notice: TurnNotice) {
+        guard !notices.contains(notice) else { return }
+        notices.append(notice)
+    }
+
+    /// Checks the answer's citations and records what was wrong with them.
+    ///
+    /// Runs after the answer has finished streaming rather than per chunk: a citation
+    /// marker can be split across two deltas, and flagging a half-arrived `[1` as an
+    /// invented reference would put a warning on every answer.
+    mutating func applyCitationValidation(sourceCount: Int) {
+        let validation = CitationValidator.validate(answer: answer, sourceCount: sourceCount)
+        if !validation.outOfRangeCitations.isEmpty { addNotice(.invalidCitation) }
+        if !validation.literalURLs.isEmpty { addNotice(.literalURL) }
+    }
+
+    /// Sources the answer actually cites, in citation order. The rest stay available
+    /// under "all sources" but do not clutter the turn.
+    func citedSources(using validation: CitationValidator.Result) -> [Source] {
+        validation.citedSourceIndices.compactMap { index in
+            sources.indices.contains(index) ? sources[index] : nil
+        }
+    }
+
+    /// The turn as plain text, for the clipboard and the command line.
+    ///
+    /// The rendering lives in `TranscriptFormatter` so the macOS Copy button and the
+    /// Linux CLI produce the same thing.
+    var transcript: String { TranscriptFormatter.plainText(self) }
+}
+
+/// A conversation: a sequence of turns with a derived title.
+struct ResearchThread: Codable, Identifiable, Equatable {
+    var id: UUID = UUID()
+    var createdAt: Date = Date()
+    var updatedAt: Date = Date()
+    var turns: [ResearchTurn] = []
+
+    /// The first question, shortened — good enough to pick a thread out of a list,
+    /// and it costs no model call.
+    var title: String {
+        guard let first = turns.first?.question.trimmingCharacters(in: .whitespacesAndNewlines),
+              !first.isEmpty else { return "New thread" }
+        let singleLine = first.replacingOccurrences(of: "\n", with: " ")
+        guard singleLine.count > 60 else { return singleLine }
+        let cut = singleLine.prefix(60)
+        // Break on the last word boundary so the title never ends mid-word.
+        if let space = cut.lastIndex(of: " "), cut.distance(from: cut.startIndex, to: space) > 30 {
+            return String(cut[..<space]) + "…"
+        }
+        return cut + "…"
+    }
+
+    var isEmpty: Bool { turns.isEmpty }
+}

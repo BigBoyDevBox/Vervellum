@@ -1,0 +1,79 @@
+name: Linux
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  # Manual runs. Added because GitHub throttled webhook delivery during an Actions
+  # incident and pull_request events stopped starting workflows at all — dispatch goes
+  # through the API instead and is unaffected.
+  workflow_dispatch:
+
+# Least privilege: this job only reads the repo. Uploading the package uses the
+# artifact API, which needs no extra token scopes.
+permissions:
+  contents: read
+
+concurrency:
+  group: linux-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  build-test:
+    name: Build, test & package
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    # The official Swift image for the *target* Ubuntu release, pinned by digest. The
+    # .deb links against whatever the build environment ships, so building anywhere
+    # else produces a package that will not install on 24.04. A container also pins the
+    # whole userland, which `swift-actions/setup-swift` on a bare runner does not.
+    container:
+      image: swift:6.1-noble
+    steps:
+      # Actions are pinned to immutable commit SHAs: a mutable tag like @v4 can be
+      # repointed at tampered code after the fact, a commit SHA cannot.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false   # nothing here runs git after checkout
+
+      - name: Install build dependencies
+        run: |
+          apt-get update
+          # libgtk-4-dev brings the headers pkg-config resolves for the CGtk target;
+          # the rest are the packaging tools.
+          DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            libgtk-4-dev pkg-config dpkg-dev binutils desktop-file-utils
+
+      - name: Build
+        run: swift build -c release --product vervellum
+
+      # The shared core is the whole point of the Linux target: these are the same test
+      # files the macOS suite runs, so a change that breaks one platform's copy of a
+      # rule breaks the other's build too.
+      - name: Test the shared core
+        run: swift test --parallel
+
+      - name: Validate the desktop entry
+        run: |
+          sed 's/@VERSION@/0.0.0/g' packaging/debian/ch.lkmc.Vervellum.desktop > /tmp/entry.desktop
+          desktop-file-validate /tmp/entry.desktop
+
+      - name: Package
+        run: packaging/build-deb.sh 0.0.0+ci
+
+      # A .deb that builds but will not install is the characteristic failure of
+      # hand-rolled dpkg-deb packaging, and it costs one step to rule out. Dependencies
+      # are checked separately because the container has no GTK runtime packages.
+      - name: Install the package
+        run: |
+          dpkg --install --force-depends build/vervellum_0.0.0+ci_*.deb
+          test -x /usr/bin/vervellum
+          test -f /usr/share/applications/ch.lkmc.Vervellum.desktop
+          /usr/bin/vervellum --version
+
+      - name: Upload the package
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: vervellum-deb
+          path: build/*.deb
+          if-no-files-found: error
