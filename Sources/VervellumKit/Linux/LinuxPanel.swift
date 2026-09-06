@@ -33,6 +33,9 @@ final class LinuxPanel {
     private var thread = ResearchThread()
     private var runningTask: Task<Void, Never>?
     private var isRunning = false
+    /// The question waiting for the running turn to finish. One slot, newest wins —
+    /// same contract as the macOS engine's queue.
+    private var queued: (question: String, direct: Bool)?
     /// Which turn the running task belongs to. A run cancelled by "New" still reports
     /// back, after the thread has been replaced; without this it would reset the state
     /// of whatever run the user had started since.
@@ -126,7 +129,7 @@ final class LinuxPanel {
 
     private func wireComposer() {
         GTK.onSignal(UnsafeMutableRawPointer(sendButton), "clicked") { [weak self] in
-            self?.submitOrStop()
+            self?.submitFromButton()
         }
         GTK.observeKeys(composer) { [weak self] keyval, modifiers in
             guard let self else { return false }
@@ -162,16 +165,36 @@ final class LinuxPanel {
         runningTask = nil
         runningTurnID = nil
         isRunning = false
+        // The queued question belongs to the thread being left, not the new one.
+        queued = nil
         thread = ResearchThread()
         GTK.setText(composer, "")
         render()
     }
 
-    private func submitOrStop() {
+    /// The send button. While a run is in flight it is a deliberate Stop, never a
+    /// queue — a button labelled Stop must stop.
+    private func submitFromButton() {
         if isRunning {
+            runningTask?.cancel()
+        } else {
+            submit()
+        }
+    }
+
+    /// The Return key. While a run is in flight and the composer holds text, the text
+    /// is queued for the moment the answer lands; with an empty composer it stops the
+    /// run, which is what it always meant.
+    private func submitOrStop() {
+        if isRunning,
+           GTK.text(of: composer).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             runningTask?.cancel()
             return
         }
+        submit()
+    }
+
+    private func submit() {
         let text = GTK.text(of: composer).trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
 
@@ -193,11 +216,29 @@ final class LinuxPanel {
                          + "command on Linux yet.")
         case .ask(let question):
             GTK.setText(composer, "")
-            ask(question, mode: .research)
+            enqueueOrAsk(question, direct: false)
         case .direct(let question):
             GTK.setText(composer, "")
-            ask(question, mode: .direct)
+            enqueueOrAsk(question, direct: true)
         }
+    }
+
+    /// A question submitted while a run is active waits for it; stopping the current
+    /// research is not a withdrawal of the question queued behind it, so `finish`
+    /// spends the queue whatever ended the run.
+    private func enqueueOrAsk(_ question: String, direct: Bool) {
+        guard isRunning else {
+            ask(question, mode: direct ? .direct : .research)
+            return
+        }
+        queued = (question, direct)
+        render()
+    }
+
+    private func askNextIfQueued() {
+        guard !isRunning, let next = queued else { return }
+        queued = nil
+        ask(next.question, mode: next.direct ? .direct : .research)
     }
 
     private func ask(_ question: String, mode: ResearchRunner.Mode) {
@@ -259,6 +300,7 @@ final class LinuxPanel {
         runningTask = nil
         environment.archive.save(persistableThread)
         environment.archive.flush()
+        askNextIfQueued()
         render()
     }
 
@@ -296,8 +338,19 @@ final class LinuxPanel {
             GTK.append(threadBox, turnView(turn))
         }
 
-        gtk_label_set_markup(vv_label(statusLabel),
-                             isRunning ? "<span size=\"small\">Researching… press Ask again to stop</span>" : "")
+        // The status line is Pango markup, so the queued question — model- and
+        // user-controlled text — must be escaped, and truncated before escaping so an
+        // ellipsis can still land after the cut.
+        var statusMarkup = ""
+        if isRunning {
+            if let queued {
+                let escaped = GTK.escape(String(queued.question.prefix(80)))
+                statusMarkup = "<span size=\"small\">Researching… next queued: \(escaped)</span>"
+            } else {
+                statusMarkup = "<span size=\"small\">Researching… press Ask again to stop</span>"
+            }
+        }
+        gtk_label_set_markup(vv_label(statusLabel), statusMarkup)
         gtk_button_set_label(vv_button(sendButton), isRunning ? "Stop" : "Ask")
     }
 

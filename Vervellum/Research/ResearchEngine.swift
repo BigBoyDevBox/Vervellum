@@ -19,6 +19,11 @@ final class ResearchEngine: ObservableObject {
 
     @Published private(set) var thread: ResearchThread
     @Published private(set) var isRunning = false
+    /// The question waiting for the running turn to finish, if any. Published so the
+    /// composer can show what will be asked and offer to cancel it. One slot: a second
+    /// submit replaces the first, and the chip always shows the current occupant.
+    @Published private(set) var queuedQuestion: String?
+    private var queuedMode: Mode = .research
 
     private let preferences: CorePreferences
     private let secrets: SecretStore
@@ -42,12 +47,14 @@ final class ResearchEngine: ObservableObject {
     // MARK: Thread control
 
     func replaceThread(with thread: ResearchThread) {
-        cancel()
+        cancelRun()
+        queuedQuestion = nil
         self.thread = thread
     }
 
     func startNewThread() {
-        cancel()
+        cancelRun()
+        queuedQuestion = nil
         thread = ResearchThread()
         publishChange()
     }
@@ -55,7 +62,18 @@ final class ResearchEngine: ObservableObject {
     /// Stops the running turn. The partial answer is kept: a half-written answer with
     /// its sources is often still useful, and discarding it would punish the user for
     /// changing their mind.
+    ///
+    /// A deliberate Stop also spends the queue: stopping the current research is not
+    /// a withdrawal of the question already waiting behind it.
     func cancel() {
+        cancelRun()
+        askNextIfQueued()
+    }
+
+    /// Stops the running turn without touching the queue. The path for context
+    /// switches — new thread, opening another thread — where the queued question
+    /// belongs to the thread being left, not the one being opened.
+    private func cancelRun() {
         guard let task else { return }
         task.cancel()
         self.task = nil
@@ -112,6 +130,33 @@ final class ResearchEngine: ObservableObject {
         }
     }
 
+    /// Queues `question` to be asked the moment the running turn finishes.
+    ///
+    /// A research run is 10–60 s of dead time in which the user has usually already
+    /// thought of the follow-up; locking the composer for that stretch wastes it. One
+    /// slot, newest wins — the UI shows the current occupant, so replacement is
+    /// visible rather than surprising.
+    func enqueue(_ question: String, mode: Mode = .research) {
+        let trimmed = question.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, isRunning else { return }
+        queuedQuestion = trimmed
+        queuedMode = mode
+    }
+
+    /// Drops the queued question without asking it.
+    func cancelQueued() {
+        queuedQuestion = nil
+    }
+
+    /// Asks the queued question if no run is active. Called when a turn finishes —
+    /// including one the user stopped, since stopping the current research is not a
+    /// withdrawal of the question already queued behind it.
+    private func askNextIfQueued() {
+        guard !isRunning, let question = queuedQuestion else { return }
+        queuedQuestion = nil
+        ask(question, mode: queuedMode)
+    }
+
     /// Re-runs one turn's question.
     ///
     /// Takes the turn's id rather than assuming the last one: a thread can hold several
@@ -148,6 +193,11 @@ final class ResearchEngine: ObservableObject {
             runningTurnID = nil
             isRunning = false
             task = nil
+            // Inside the `if`: only the finish of the *current* run may spend the
+            // queue. A late finish from a run the user already cancelled and replaced
+            // would otherwise drop the queued question into `ask`'s `isRunning` guard
+            // and silently lose it.
+            askNextIfQueued()
         }
         publishChange()
     }

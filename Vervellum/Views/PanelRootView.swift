@@ -168,6 +168,32 @@ struct PanelRootView: View {
                     .foregroundStyle(PanelTheme.Palette.verdict(.mixed))
                     .padding(.horizontal, PanelTheme.Space.small)
             }
+            if let queued = engine.queuedQuestion {
+                HStack(spacing: PanelTheme.Space.small) {
+                    Image(systemName: "clock.arrow.circlepath")
+                        .font(.system(size: 10))
+                    Text(queued)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                    Text("— sends when this answer lands")
+                        .foregroundStyle(PanelTheme.Palette.tertiaryText)
+                        .lineLimit(1)
+                    Spacer(minLength: 0)
+                    Button {
+                        engine.cancelQueued()
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.system(size: 11))
+                            .foregroundStyle(PanelTheme.Palette.tertiaryText)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Remove the queued question")
+                    .accessibilityLabel("Remove the queued question")
+                }
+                .font(PanelTheme.Font.caption)
+                .foregroundStyle(PanelTheme.Palette.accent)
+                .padding(.horizontal, PanelTheme.Space.small)
+            }
             if let completions = ComposerCommand.completions(for: draft) {
                 CommandCompletionsView(completions: completions) { name in
                     draft = "/\(name) "
@@ -177,7 +203,10 @@ struct PanelRootView: View {
                 ComposerView(text: $draft,
                              placeholder: placeholder,
                              submitOnReturn: preferences.submitOnReturn,
-                             isEnabled: !engine.isRunning,
+                             // Editable while a run is in flight: those are tens of
+                             // seconds in which the next question is usually already
+                             // formed. Submitting mid-run queues it (see `submit`).
+                             isEnabled: true,
                              onSubmit: { submit(draft) },
                              onArrow: recall)
                     // The composer's own width: the panel minus its gutters and the
@@ -212,7 +241,7 @@ struct PanelRootView: View {
     }
 
     private var placeholder: String {
-        engine.isRunning ? "Researching…" : "Ask anything — / for commands"
+        engine.isRunning ? "Queue the next question…" : "Ask anything — / for commands"
     }
 
     private struct CommandCompletionsView: View {
@@ -249,7 +278,6 @@ struct PanelRootView: View {
     // MARK: Actions
 
     private func submit(_ text: String) {
-        guard !engine.isRunning else { return }
         recallIndex = nil
         redactionNote = nil
         switch ComposerCommand.parse(text) {
@@ -258,11 +286,19 @@ struct PanelRootView: View {
         case .ask(let question):
             showsHelp = false
             draft = ""
-            engine.ask(question, mode: .research)
+            if engine.isRunning {
+                engine.enqueue(question, mode: .research)
+            } else {
+                engine.ask(question, mode: .research)
+            }
         case .direct(let question):
             showsHelp = false
             draft = ""
-            engine.ask(question, mode: .direct)
+            if engine.isRunning {
+                engine.enqueue(question, mode: .direct)
+            } else {
+                engine.ask(question, mode: .direct)
+            }
         case .newThread:
             draft = ""
             newThread()
