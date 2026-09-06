@@ -2,19 +2,26 @@
 
 ## App icon
 
-`Vervellum/Resources/Assets.xcassets/AppIcon.appiconset` is generated, not drawn. The
-source is [`media-sources/make_appicon.py`](media-sources/make_appicon.py), a small
-Pillow script that renders the mark at 8× and downsamples, so the 16pt and 32pt sizes
-stay legible without hand-hinting.
+The artwork is [`media-sources/icon.png`](media-sources/icon.png): a magnifier over an
+open book whose text carries numbered citations — search, and the evidence it rests
+on. It is part of this repository and shared under the same terms as everything else
+in it.
+
+Every size the platforms use is exported from that one file by
+[`media-sources/make_appicon.py`](media-sources/make_appicon.py), a small Pillow
+script:
 
 ```bash
 python3 media-sources/make_appicon.py
 ```
 
-The mark is a magnifier over three evidence rules, the middle one struck through in the
-accent colour — search plus a verdict, which is what the app does. No third-party
-artwork is involved, and the generated PNGs are public domain along with the rest of
-the repository.
+- `Vervellum/Resources/Assets.xcassets/AppIcon.appiconset` — macOS, ten sizes, the
+  rounded-square shape of the macOS icon grid cut out on the full canvas.
+- `packaging/icons/hicolor/<size>x<size>/apps/ch.lkmc.Vervellum.png` — Linux, the
+  sizes the hicolor icon theme indexes, which `packaging/build-deb.sh` installs.
+
+Edit the artwork, run the script, and commit both the source and the exports. Nothing
+under either output directory is hand-edited.
 
 ## Interface symbols
 

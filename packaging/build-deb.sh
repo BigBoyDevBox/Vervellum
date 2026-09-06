@@ -42,12 +42,13 @@ strip --strip-unneeded "$STAGE/usr/bin/vervellum" 2>/dev/null || true
 sed "s/@VERSION@/$VERSION/g" "$ROOT/packaging/debian/$APP_ID.desktop" \
     > "$STAGE/usr/share/applications/$APP_ID.desktop"
 
-for size in 16 32 128 256 512; do
-    src="$ROOT/Vervellum/Resources/Assets.xcassets/AppIcon.appiconset/icon_${size}x${size}@1x.png"
-    if [ -f "$src" ]; then
-        install -D -m 0644 "$src" \
-            "$STAGE/usr/share/icons/hicolor/${size}x${size}/apps/$APP_ID.png"
-    fi
+# The hicolor tree is exported by media-sources/make_appicon.py from the same
+# artwork as the macOS icon, at the sizes GNOME indexes — including 48 and 64,
+# which the asset catalog does not carry.
+for src in "$ROOT"/packaging/icons/hicolor/*/apps/"$APP_ID.png"; do
+    [ -f "$src" ] || continue
+    size="$(basename "$(dirname "$(dirname "$src")")")"
+    install -D -m 0644 "$src" "$STAGE/usr/share/icons/hicolor/$size/apps/$APP_ID.png"
 done
 
 # `DBusActivatable=true` in the desktop entry is a promise the session bus has to be
