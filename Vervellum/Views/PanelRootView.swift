@@ -23,6 +23,17 @@ struct PanelRootView: View {
     @State private var redactionNote: Int?
     /// Earlier questions, newest first, for ↑/↓ recall in the composer.
     @State private var recallIndex: Int?
+    /// Whether the thread view is following the stream: auto-scrolling to new content
+    /// as it arrives. Turned off the moment the reader scrolls away from the bottom, so
+    /// re-reading the first half of an answer is never interrupted by the second half.
+    /// See `updateFollowing()` for the thresholds.
+    @State private var isFollowingStream = true
+    /// Geometry of the thread scroll view, fed by the preferences below. Optional
+    /// because a `LazyVStack` discards the bottom anchor once it is more than a
+    /// viewport offscreen — a nil report must leave the follow decision untouched, not
+    /// reset it.
+    @State private var bottomAnchorY: CGFloat?
+    @State private var viewportHeight: CGFloat?
 
     /// Whether the providers are configured, sampled rather than computed.
     ///
@@ -133,22 +144,70 @@ struct PanelRootView: View {
                     }
                     // A scroll anchor rather than scrolling to the last turn: the last
                     // turn's own id points at its *top*, so pinning to it would jump
-                    // backwards every time the answer grew.
-                    Color.clear.frame(height: 1).id(Self.bottomAnchor)
+                    // backwards every time the answer grew. It is also the probe that
+                    // reports how far the content's bottom sits below the viewport, on
+                    // which the follow decision is made.
+                    Color.clear.frame(height: 1)
+                        .background(GeometryReader { geometry in
+                            Color.clear.preference(
+                                key: BottomAnchorPreferenceKey.self,
+                                value: geometry.frame(in: .named(Self.scrollSpace)).maxY)
+                        })
+                        .id(Self.bottomAnchor)
                 }
                 .padding(.horizontal, PanelTheme.Space.gutter)
                 .padding(.vertical, PanelTheme.Space.large)
             }
+            .coordinateSpace(name: Self.scrollSpace)
+            .background(GeometryReader { geometry in
+                Color.clear.preference(key: ViewportHeightPreferenceKey.self,
+                                       value: geometry.size.height)
+            })
+            .onPreferenceChange(BottomAnchorPreferenceKey.self) { anchorY in
+                bottomAnchorY = anchorY
+                updateFollowing()
+            }
+            .onPreferenceChange(ViewportHeightPreferenceKey.self) { height in
+                viewportHeight = height
+                updateFollowing()
+            }
             .onChange(of: engine.thread.turns.last?.answer) { _, _ in
-                scrollToBottom(proxy)
+                // Only while following. A reader who has scrolled away has said where
+                // they want to be; the stream must not drag them back on every token.
+                if isFollowingStream { scrollToBottom(proxy) }
             }
             .onChange(of: engine.thread.turns.count) { _, _ in
+                // A new turn is always a jump the user asked for — they submitted the
+                // question — so it lands at the bottom whatever they were reading, and
+                // following resumes for the new answer.
+                isFollowingStream = true
                 scrollToBottom(proxy)
             }
         }
     }
 
     private static let bottomAnchor = "vervellum.bottom"
+    private static let scrollSpace = "vervellum.scroll"
+
+    /// The anchor can hang this far below the viewport before following gives up. Wide
+    /// enough that a normal streamed chunk (a few points of growth before the scroll
+    /// lands) never trips it; narrow enough that two paragraphs of deliberate scrolling
+    /// up does.
+    private static let followDropThreshold: CGFloat = 120
+    /// Once given up, the reader must come back this close to the bottom before the
+    /// stream is followed again. The gap between the two thresholds is hysteresis —
+    /// without it, jitter right at the boundary would flip following on and off.
+    private static let followSnapThreshold: CGFloat = 40
+
+    private func updateFollowing() {
+        guard let bottomAnchorY, let viewportHeight else { return }
+        let overhang = bottomAnchorY - viewportHeight
+        if isFollowingStream {
+            if overhang > Self.followDropThreshold { isFollowingStream = false }
+        } else if overhang <= Self.followSnapThreshold {
+            isFollowingStream = true
+        }
+    }
 
     private func scrollToBottom(_ proxy: ScrollViewProxy) {
         // Unanimated: an animated scroll re-targeted on every streamed token fights
@@ -331,6 +390,7 @@ struct PanelRootView: View {
         showsHistory = false
         draft = ""
         recallIndex = nil
+        isFollowingStream = true
         engine.startNewThread()
     }
 
@@ -339,6 +399,10 @@ struct PanelRootView: View {
         showsHelp = false
         recallIndex = nil
         draft = ""
+        // A thread opened from history is opened for its newest answer, which sits at
+        // the bottom; following starts on rather than preserving wherever the previous
+        // thread happened to be scrolled.
+        isFollowingStream = true
         engine.replaceThread(with: thread)
     }
 
@@ -373,5 +437,24 @@ struct PanelRootView: View {
             }
         }
         return true
+    }
+}
+
+/// Where the thread content's bottom edge sits, in the scroll view's coordinate space.
+/// Optional: a `LazyVStack` unmounts the anchor once it is more than a viewport
+/// offscreen, and a missing report must not be read as "at the bottom".
+private struct BottomAnchorPreferenceKey: PreferenceKey {
+    static var defaultValue: CGFloat? { nil }
+    static func reduce(value: inout CGFloat?, nextValue: () -> CGFloat?) {
+        value = nextValue() ?? value
+    }
+}
+
+/// The scroll view's own height, so the anchor's position can be compared against the
+/// visible bottom edge.
+private struct ViewportHeightPreferenceKey: PreferenceKey {
+    static var defaultValue: CGFloat? { nil }
+    static func reduce(value: inout CGFloat?, nextValue: () -> CGFloat?) {
+        value = nextValue() ?? value
     }
 }
