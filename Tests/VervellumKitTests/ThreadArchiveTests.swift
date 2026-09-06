@@ -45,7 +45,8 @@ final class ThreadLibraryTests: XCTestCase {
 
     func testTheListIsBounded() {
         var library = ThreadLibrary()
-        for index in 0..<(ThreadLibrary.maxThreads + 20) {
+        let overfill = ThreadLibrary.maxThreads + 20
+        for index in 0..<overfill {
             library.upsert(thread("q\(index)"))
         }
         XCTAssertEqual(library.threads.count, ThreadLibrary.maxThreads)

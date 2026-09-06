@@ -14,8 +14,9 @@
 	  Runtime does not gate outgoing network connections.
 
 	  WHAT CI ACTUALLY SHIPS: release.yml produces an **ad-hoc signed, unsigned,
-	  un-notarized** build. `codesign --sign -` is the minimum required to launch on
-	  Apple Silicon; it is not a Developer ID signature, so Gatekeeper warns on first
+	  un-notarized** build. Signing with codesign's ad-hoc identity ("-") is the minimum
+	  required to launch on Apple Silicon; it is not a Developer ID signature, so
+	  Gatekeeper warns on first
 	  launch. ENABLE_HARDENED_RUNTIME applies to a locally signed build; the ad-hoc CI
 	  build carries no embedded entitlements.
 
