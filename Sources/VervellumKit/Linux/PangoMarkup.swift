@@ -185,7 +185,7 @@ enum PangoMarkup {
             }
             return line
         }
-        return small(turn.stage.label + "…")
+        return small(turn.runningProgressLabel + "…")
     }
 
     static func notices(_ notices: [TurnNotice]) -> String? {
