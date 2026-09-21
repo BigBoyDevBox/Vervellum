@@ -55,8 +55,10 @@ jobs:
 
       - name: Validate the desktop entry
         run: |
-          sed 's/@VERSION@/0.0.0/g' packaging/debian/ch.lkmc.Vervellum.desktop > /tmp/entry.desktop
-          desktop-file-validate /tmp/entry.desktop
+          # Keep the reverse-DNS filename: the entry sets DBusActivatable, and
+          # desktop-file-validate rejects a plain name like entry.desktop for it.
+          sed 's/@VERSION@/0.0.0/g' packaging/debian/ch.lkmc.Vervellum.desktop > /tmp/ch.lkmc.Vervellum.desktop
+          desktop-file-validate /tmp/ch.lkmc.Vervellum.desktop
 
       - name: Package
         run: packaging/build-deb.sh 0.0.0+ci
