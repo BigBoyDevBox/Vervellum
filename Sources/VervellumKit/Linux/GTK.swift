@@ -259,6 +259,7 @@ enum GTK {
     static func isEscape(_ keyval: UInt32) -> Bool { keyval == vv_key_escape() }
     static func hasShift(_ modifiers: UInt32) -> Bool { modifiers & vv_mask_shift() != 0 }
     static func hasControl(_ modifiers: UInt32) -> Bool { modifiers & vv_mask_control() != 0 }
+    static func hasAlt(_ modifiers: UInt32) -> Bool { modifiers & vv_mask_alt() != 0 }
 
     // MARK: Styling
 

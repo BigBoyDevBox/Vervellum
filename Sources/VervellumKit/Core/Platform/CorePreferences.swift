@@ -34,8 +34,10 @@ final class CorePreferences {
         static let historyEnabled = true
         /// The search-plan and sources trail above each answer.
         static let showProcessTrail = true
-        /// Return submits; Shift-Return inserts a newline. The inverse suits people who
-        /// write long multi-paragraph questions.
+        /// Return submits; Shift-Return always inserts a newline, whichever way this is
+        /// set. Off makes a bare Return the newline key instead — ⌘⏎ (Ctrl-Return on
+        /// Linux) still sends — which suits people who write long multi-paragraph
+        /// questions.
         static let submitOnReturn = true
         /// On. A false positive costs a re-typed word; a false negative sends a live
         /// credential to a third party.
