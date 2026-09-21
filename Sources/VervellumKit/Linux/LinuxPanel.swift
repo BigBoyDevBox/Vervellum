@@ -30,15 +30,16 @@ final class LinuxPanel {
     private let sendButton: GTK.Widget
     private let statusLabel: GTK.Widget
 
-    private var thread = ResearchThread()
-    private var runningTask: Task<Void, Never>?
-    private var isRunning = false
-    /// Which turn the running task belongs to. A run cancelled by "New" still reports
-    /// back, after the thread has been replaced; without this it would reset the state
-    /// of whatever run the user had started since.
-    private var runningTurnID: UUID?
-    /// When the thread was last drawn. A streamed answer produces a snapshot per token,
-    /// and rebuilding the widget tree that often is visibly slow on a long thread.
+    /// Live state per thread. "New" detaches the current session rather than
+    /// cancelling it — a run in flight keeps going and persists its own thread when
+    /// it finishes — so several researches can run in parallel.
+    private var sessions: [UUID: ResearchSession] = [:]
+    /// Lazy because `makeSession` wires callbacks back to `self`, which is only
+    /// possible once every other stored property has a value.
+    private lazy var active: ResearchSession = makeSession(thread: ResearchThread())
+    /// When the visible thread was last drawn. A streamed answer produces a snapshot
+    /// per token, and rebuilding the widget tree that often is visibly slow on a
+    /// long thread.
     private var lastRender = Date.distantPast
 
     init(application: UnsafeMutablePointer<GtkApplication>,
@@ -64,9 +65,49 @@ final class LinuxPanel {
         GTK.append(root, GTK.scrolled(threadBox))
         GTK.append(root, footer())
 
+        // Registering the first session is what retains it once a later "New"
+        // detaches it: the run's Task holds the session only weakly, so the map is
+        // the difference between a detached run finishing and being silently dropped.
+        sessions[active.id] = active
+
         GTK.applyStylesheet(Self.stylesheet)
         wireComposer()
         render()
+    }
+
+    private func makeSession(thread: ResearchThread) -> ResearchSession {
+        let session = ResearchSession(
+            thread: thread,
+            preferences: environment.preferences,
+            secrets: environment.secrets,
+            logSink: StandardErrorLog(),
+            hop: { GTK.onMainLoop($0) })
+        session.onMutate = { [weak self] session, mutation in
+            guard let self, session === self.active else { return }
+            // A change that only extends the answer is redrawn at most ten times a
+            // second. Anything structural is drawn immediately, because those are
+            // the moments the user is waiting for. The final frame is guaranteed:
+            // finishing a run is always a structural mutation.
+            if mutation.isStructural || Date().timeIntervalSince(self.lastRender) >= 0.1 {
+                self.render()
+            }
+        }
+        session.onPersist = { [weak self] session in
+            guard let self else { return }
+            self.environment.archive.save(session.persistableThread)
+            self.environment.archive.flush()
+        }
+        session.onRunningChange = { [weak self] session in
+            // The Ask/Stop button and status line describe the visible session.
+            guard let self, session === self.active else { return }
+            self.render()
+        }
+        return session
+    }
+
+    private func activate(_ session: ResearchSession) {
+        sessions[session.id] = session
+        active = session
     }
 
     // MARK: Presentation
@@ -154,22 +195,16 @@ final class LinuxPanel {
     // MARK: Actions
 
     private func newThread() {
-        runningTask?.cancel()
-        // Cleared now rather than when the cancelled run reports back. Until `finish`
-        // arrives — which takes as long as the in-flight request takes to notice the
-        // cancellation — a press of Ask would otherwise be read as Stop and swallowed,
-        // which looks exactly like the button ignoring the user.
-        runningTask = nil
-        runningTurnID = nil
-        isRunning = false
-        thread = ResearchThread()
+        // Detach rather than cancel: the old session's run keeps going and persists
+        // its own thread when it finishes — the parallel-threads behaviour.
+        activate(makeSession(thread: ResearchThread()))
         GTK.setText(composer, "")
         render()
     }
 
     private func submitOrStop() {
-        if isRunning {
-            runningTask?.cancel()
+        if active.isRunning {
+            active.cancel()
             return
         }
         let text = GTK.text(of: composer).trimmingCharacters(in: .whitespacesAndNewlines)
@@ -193,93 +228,24 @@ final class LinuxPanel {
                          + "command on Linux yet.")
         case .ask(let question):
             GTK.setText(composer, "")
-            ask(question, mode: .research)
+            active.ask(question, mode: .research)
         case .direct(let question):
             GTK.setText(composer, "")
-            ask(question, mode: .direct)
+            active.ask(question, mode: .direct)
         }
-    }
-
-    private func ask(_ question: String, mode: ResearchRunner.Mode) {
-        var draft = ResearchTurn(question: question)
-        draft.model = environment.preferences.providerSettings.modelName
-        if mode == .direct { draft.notices = [.noEvidence] }
-        // Immutable from here: the task's closure cannot capture a mutable variable.
-        let turn = draft
-        thread.turns.append(turn)
-        runningTurnID = turn.id
-        isRunning = true
-        render()
-
-        // Informational turns (`/help`) are filtered out again by `ResearchContext`;
-        // dropping them here just keeps the history honest at the source.
-        let history = thread.turns.dropLast().filter { !$0.question.isEmpty }
-        let runner = ResearchRunner(
-            environment: .init(preferences: environment.preferences, secrets: environment.secrets),
-            trace: ResearchTrace(sink: StandardErrorLog()))
-
-        runningTask = Task { [weak self] in
-            let finished = await runner.run(turn, mode: mode, history: history) { snapshot in
-                // Back onto the GTK loop. Not `DispatchQueue.main` and not `MainActor`:
-                // a GLib main loop drains neither, so either would leave the window
-                // frozen with no error to show for it.
-                GTK.onMainLoop { self?.apply(snapshot) }
-            }
-            GTK.onMainLoop {
-                self?.apply(finished)
-                self?.finish(finished.id)
-            }
-        }
-    }
-
-    private func apply(_ snapshot: ResearchTurn) {
-        guard let index = thread.turns.firstIndex(where: { $0.id == snapshot.id }) else { return }
-        let previous = thread.turns[index]
-        thread.turns[index] = snapshot
-        thread.updatedAt = Date()
-
-        // A change that only extends the answer is redrawn at most ten times a second.
-        // Anything structural — a new stage, sources arriving, verdicts landing — is
-        // drawn immediately, because those are the moments the user is waiting for. The
-        // final frame is guaranteed by `finish(_:)`, which always draws.
-        let structural = previous.stage != snapshot.stage
-            || previous.sources.count != snapshot.sources.count
-            || previous.findings.count != snapshot.findings.count
-            || previous.notices != snapshot.notices
-        guard structural || Date().timeIntervalSince(lastRender) >= 0.1 else { return }
-        render()
-    }
-
-    private func finish(_ id: UUID) {
-        // Only the run that is actually current may clear the running state. See
-        // `runningTurnID`.
-        guard runningTurnID == id else { return }
-        runningTurnID = nil
-        isRunning = false
-        runningTask = nil
-        environment.archive.save(persistableThread)
-        environment.archive.flush()
-        render()
     }
 
     /// A message from the panel itself — `/help`, or a command this platform lacks —
     /// shown in the thread as a turn with no question.
     ///
     /// Such turns are rendered but never persisted and never sent as history; both
-    /// `persistableThread` and `ResearchContext` key off the empty question.
+    /// `ResearchSession.persistableThread` and `ResearchContext` key off the empty
+    /// question.
     private func appendNotice(_ markdown: String) {
         var turn = ResearchTurn(question: "")
         turn.answer = markdown
         turn.stage = .complete
-        thread.turns.append(turn)
-        render()
-    }
-
-    /// The thread as it is stored: research only, with the panel's own notices removed.
-    private var persistableThread: ResearchThread {
-        var stored = thread
-        stored.turns.removeAll { $0.question.isEmpty }
-        return stored
+        active.appendLocalTurn(turn)
     }
 
     // MARK: Rendering
@@ -288,17 +254,17 @@ final class LinuxPanel {
         lastRender = Date()
         GTK.removeAllChildren(of: threadBox)
 
-        if thread.turns.isEmpty {
+        if active.thread.turns.isEmpty {
             GTK.append(threadBox, GTK.markupLabel(Self.emptyStateMarkup(environment: environment)))
         }
 
-        for turn in thread.turns {
+        for turn in active.thread.turns {
             GTK.append(threadBox, turnView(turn))
         }
 
         gtk_label_set_markup(vv_label(statusLabel),
-                             isRunning ? "<span size=\"small\">Researching… press Ask again to stop</span>" : "")
-        gtk_button_set_label(vv_button(sendButton), isRunning ? "Stop" : "Ask")
+                             active.isRunning ? "<span size=\"small\">Researching… press Ask again to stop</span>" : "")
+        gtk_button_set_label(vv_button(sendButton), active.isRunning ? "Stop" : "Ask")
     }
 
     private func turnView(_ turn: ResearchTurn) -> GTK.Widget {

@@ -9,6 +9,9 @@ import SwiftUI
 struct HistoryView: View {
 
     @ObservedObject var store: ThreadStore
+    /// Threads with a run in flight — they keep working while detached, so the list
+    /// marks them rather than showing them frozen mid-answer.
+    var runningIDs: Set<UUID> = []
     var onOpen: (ResearchThread) -> Void
     var onClose: () -> Void
 
@@ -70,6 +73,7 @@ struct HistoryView: View {
             LazyVStack(alignment: .leading, spacing: 0) {
                 ForEach(results) { thread in
                     HistoryRow(thread: thread,
+                               isRunning: runningIDs.contains(thread.id),
                                onOpen: { onOpen(thread) },
                                onDelete: { store.delete(id: thread.id) })
                 }
@@ -88,6 +92,7 @@ struct HistoryView: View {
 /// One thread in the history list.
 private struct HistoryRow: View {
     let thread: ResearchThread
+    var isRunning: Bool = false
     var onOpen: () -> Void
     var onDelete: () -> Void
 
@@ -106,6 +111,13 @@ private struct HistoryRow: View {
                         .foregroundStyle(PanelTheme.Palette.tertiaryText)
                 }
                 Spacer(minLength: 0)
+                if isRunning {
+                    ProgressView()
+                        .controlSize(.small)
+                        .scaleEffect(0.7)
+                        .frame(width: 12, height: 12)
+                        .help("Research is still running in this thread")
+                }
                 if isHovering {
                     Button(action: onDelete) {
                         Image(systemName: "trash")

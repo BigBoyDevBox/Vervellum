@@ -43,6 +43,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         engine.onThreadChanged = { [weak self] thread in
             self?.store.save(thread)
         }
+        store.onRemove = { [weak self] id in
+            if let id {
+                self?.engine.discardSession(for: id)
+            } else {
+                self?.engine.discardAllSessions()
+            }
+        }
 
         let panelController = makePanelController()
         self.panelController = panelController
@@ -89,7 +96,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 onOpenSettings: { [weak self] in self?.settingsWindow?.show() },
                 onClose: { [weak self] in self?.panelController?.hide() }))
         }
-        controller.isBusy = { [weak self] in self?.engine.isRunning ?? false }
+        // A detached run counts too: any thread still researching keeps the panel
+        // from being dismissed on focus loss, not just the visible one.
+        controller.isBusy = { [weak self] in self?.engine.isBusy ?? false }
         // Dismissing the panel is the natural moment to make the thread durable: the
         // store debounces writes by a second, and the user may quit right after.
         controller.onDismiss = { [weak self] in self?.store.flush() }
