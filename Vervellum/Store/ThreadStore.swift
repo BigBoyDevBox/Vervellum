@@ -15,6 +15,11 @@ final class ThreadStore: ObservableObject {
 
     private let archive: ThreadArchive
 
+    /// Invoked after threads are removed — `nil` means all of them. The engine uses
+    /// it to drop the matching sessions: a run in flight on a deleted thread would
+    /// otherwise re-save the thread at its next checkpoint, resurrecting it.
+    var onRemove: ((UUID?) -> Void)?
+
     init(fileURL: URL = ThreadStore.defaultURL,
          fileManager: FileManager = .default,
          historyEnabled: Bool = true,
@@ -55,7 +60,15 @@ final class ThreadStore: ObservableObject {
     }
 
     func save(_ thread: ResearchThread) { archive.save(thread) }
-    func delete(id: UUID) { archive.delete(id: id) }
-    func deleteAll() { archive.deleteAll() }
+
+    func delete(id: UUID) {
+        archive.delete(id: id)
+        onRemove?(id)
+    }
+
+    func deleteAll() {
+        archive.deleteAll()
+        onRemove?(nil)
+    }
     func flush() { archive.flush() }
 }

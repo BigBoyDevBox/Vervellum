@@ -47,6 +47,7 @@ struct PanelRootView: View {
 
             if showsHistory {
                 HistoryView(store: store,
+                            runningIDs: engine.runningThreadIDs,
                             onOpen: openThread,
                             onClose: { showsHistory = false })
             } else {

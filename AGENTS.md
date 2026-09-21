@@ -153,8 +153,10 @@ VervellumTests/              macOS-only tests (hotkeys, panel geometry, Accessib
 `Sources/VervellumKit/Core/`:
 
 - `Research/` — the pipeline. `ResearchRunner` orchestrates the four stages and is
-  driven by both front ends; `ChatCompletionsClient` and `SearchMCPClient` talk to the
-  providers over `HTTPTransport`; `ResearchPrompts` holds the prompts; `PlanParser` /
+  driven by `ResearchSession`, which owns one thread's run state — a run survives
+  the thread being hidden, so several researches can be in flight at once;
+  `ChatCompletionsClient` and `SearchMCPClient` talk to the providers over
+  `HTTPTransport`; `ResearchPrompts` holds the prompts; `PlanParser` /
   `AssessmentParser`, `CitationValidator`, `SourceHarvester`, `EvidenceExtractor`,
   `ResearchContext` and `ProviderSettings` are pure and carry the validation rules.
 - `Store/` — `ThreadLibrary` (the versioned document) and `ThreadArchive`.
@@ -174,9 +176,10 @@ VervellumTests/              macOS-only tests (hotkeys, panel geometry, Accessib
   lifetime: preferences, store, engine, panel, status item, both shortcuts.
 - `Panel/` — `ResearchPanel` (the `NSPanel` subclass and its flags), `PanelController`
   (show / hide / place / focus handoff), and the pure `PanelPlacement` geometry.
-- `Research/` — `ResearchEngine`, an `ObservableObject` shell over the shared
-  `ResearchRunner`. It owns the thread, publishes changes, and hops each of the
-  runner's callbacks onto the main queue; every rule lives in Core.
+- `Research/` — `ResearchEngine`, an `ObservableObject` shell over a map of shared
+  `ResearchSession`s, one per thread. It picks the visible session, publishes its
+  changes, and hops the runner's callbacks onto the main queue; every rule lives in
+  Core.
 - `Model/` — `Preferences` (the macOS-only settings, forwarding the shared ones to
   `CorePreferences`) and `HotkeyBinding`.
 - `Store/` — `ThreadStore`, an `ObservableObject` shell over `ThreadArchive`.
@@ -207,9 +210,10 @@ VervellumTests/              macOS-only tests (hotkeys, panel geometry, Accessib
   `SemanticVersion`, `HotkeyBinding`.
 - No type is `@MainActor`. AppKit callbacks (hotkey handlers, notification observers,
   local event monitors) drive this app, and a type-level `@MainActor` makes those
-  closures illegal in Swift 5 language mode. `ResearchEngine` instead hops each of the
-  runner's callbacks onto the main queue with `DispatchQueue.main.async`, which is FIFO,
-  so streamed chunks land in the order they were produced.
+  closures illegal in Swift 5 language mode. `ResearchSession` instead hops each of
+  the runner's callbacks through a `hop` closure the front end supplies —
+  `DispatchQueue.main.async` on macOS, which is FIFO, so streamed chunks land in the
+  order they were produced.
 
 ## Dependencies
 
