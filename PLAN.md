@@ -351,8 +351,9 @@ status, and losing a 40-second answer to any of them would be indefensible.
 |---|---|
 | `⌃⌥⌘Space` | summon / dismiss (configurable) |
 | `⌃⌥⌘J` | summon with the selection (off by default) |
-| `Return` | ask — `Shift-Return` for a newline, swappable in Settings |
-| `⌘Return` | ask, whichever way `Return` is configured |
+| `Return` | ask, or a newline if "Return sends the question" is off in Settings |
+| `Shift-Return` | newline — a modified Return never sends |
+| `⌘Return` | ask, whichever way `Return` is configured (`Ctrl-Return` on Linux) |
 | `Esc` | clear the draft; a second press closes |
 | `↑` / `↓` | walk back through this thread's earlier questions |
 | `⌘N` | new thread |

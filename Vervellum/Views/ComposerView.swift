@@ -141,14 +141,13 @@ struct ComposerView: NSViewRepresentable {
                 parent.onSubmit()
                 return true
 
-            // Shift-Return and Option-Return arrive here. With submit-on-Return they
-            // insert a newline; with the inverse preference they submit.
+            // Shift-Return and Option-Return arrive here rather than at
+            // `insertNewline:` — a modified Return always breaks a line. Sending is
+            // a bare Return's job (or ⌘⏎'s, intercepted earlier by the panel's
+            // `performKeyEquivalent`), so the submit-on-Return preference does not
+            // repurpose these keys.
             case #selector(NSResponder.insertNewlineIgnoringFieldEditor(_:)):
-                if parent.submitOnReturn {
-                    textView.insertText("\n", replacementRange: textView.selectedRange())
-                } else {
-                    parent.onSubmit()
-                }
+                textView.insertText("\n", replacementRange: textView.selectedRange())
                 return true
 
             case #selector(NSResponder.moveUp(_:)):

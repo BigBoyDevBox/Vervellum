@@ -182,11 +182,12 @@ final class LinuxPanel {
                 return true
             }
             guard GTK.isReturn(keyval) else { return false }
-            // With submit-on-Return, a bare Return sends and Shift-Return adds a line;
-            // with the preference inverted, so are they.
-            let submitOnReturn = self.environment.preferences.submitOnReturn
-            let submitting = GTK.hasShift(modifiers) ? !submitOnReturn : submitOnReturn
-            guard submitting else { return false }   // let the text view insert a newline
+            // Mirrors the macOS composer: a Shift- or Alt-modified Return always
+            // breaks a line, a Ctrl-only Return always sends (the twin of ⌘⏎), and
+            // a bare Return follows the submit-on-Return preference.
+            if GTK.hasShift(modifiers) || GTK.hasAlt(modifiers) { return false }
+            guard GTK.hasControl(modifiers) || self.environment.preferences.submitOnReturn
+            else { return false }   // let the text view insert a newline
             self.submitOrStop()
             return true
         }
