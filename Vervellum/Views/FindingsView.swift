@@ -81,8 +81,13 @@ struct FindingsView: View {
                 .frame(width: 2)
                 .padding(.vertical, PanelTheme.Space.small)
         }
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(finding.verdict.label): \(finding.claim)")
+        // A container, not a combined element. `.combine` folded the row into one
+        // static element and took the citation chips' actions with it: the buttons that
+        // open each source stopped being reachable by VoiceOver, even though the same
+        // source is also in the list under the answer. `.contain` keeps every child — the
+        // rail's verdict label, the claim, the reasoning and each chip as its own
+        // actionable element.
+        .accessibilityElement(children: .contain)
     }
 
     private func citedSources(_ finding: Finding) -> [Source] {
