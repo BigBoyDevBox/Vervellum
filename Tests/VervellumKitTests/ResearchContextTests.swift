@@ -142,6 +142,63 @@ final class ResearchContextTests: XCTestCase {
                              ResearchContext.maxEvidenceCharacters)
     }
 
+    /// The limit the runner actually gathers under must leave room for the fixed
+    /// content and the streamed answer, not just for evidence.
+    func testTheEvidenceLimitLeavesRoomForFixedContentAndTheAnswer() {
+        // Even with nothing else in the payload, the answer reserve is charged: the
+        // assessment carries the streamed answer on top of the evidence.
+        XCTAssertEqual(
+            ResearchContext.evidenceLimit(baseLimit: ResearchContext.maxDeepEvidenceCharacters,
+                                          fixedContentBytes: 0),
+            min(ResearchContext.maxDeepEvidenceCharacters,
+                ResearchContext.maxCharacters - ResearchContext.answerContextReserve))
+        let withAttachments = ResearchContext.evidenceLimit(
+            baseLimit: ResearchContext.maxDeepEvidenceCharacters,
+            fixedContentBytes: ResearchContext.maxAttachmentPayloadBytes)
+        XCTAssertLessThan(withAttachments, ResearchContext.maxDeepEvidenceCharacters)
+        // Fixed content plus the limit plus the answer reserve must fit the ceiling.
+        XCTAssertLessThanOrEqual(
+            ResearchContext.maxAttachmentPayloadBytes + withAttachments
+                + ResearchContext.answerContextReserve,
+            ResearchContext.maxCharacters)
+        // Fixed content alone larger than the ceiling is not a negative limit.
+        XCTAssertEqual(
+            ResearchContext.evidenceLimit(baseLimit: ResearchContext.maxEvidenceCharacters,
+                                          fixedContentBytes: ResearchContext.maxCharacters * 2),
+            0)
+    }
+
+    /// Attachment text is capped per file in *characters*, so four files at that cap can
+    /// be larger than the whole context ceiling (worse in UTF-8). The payload cap must
+    /// trim the longest entries, mark the cut, and leave names and sent markers alone.
+    func testCappingAttachmentTextFitsTheBudgetAndMarksTheCut() {
+        let long = String(repeating: "研", count: Attachment.maxTextCharacters)
+        let payload = (1...4).map { ["name": "file\($0).txt", "text": long] }
+        XCTAssertGreaterThan(ResearchContext.measure(payload),
+                             ResearchContext.maxCharacters,
+                             "the premise: four max-size CJK files exceed the ceiling")
+
+        let capped = ResearchContext.cappingAttachmentText(
+            payload, to: ResearchContext.maxAttachmentPayloadBytes)
+        XCTAssertTrue(capped.changed)
+        XCTAssertLessThanOrEqual(ResearchContext.measure(capped.payload),
+                               ResearchContext.maxAttachmentPayloadBytes)
+        XCTAssertEqual(capped.payload.map { $0["name"] }, payload.map { $0["name"] })
+        for entry in capped.payload {
+            let text = entry["text"] ?? ""
+            XCTAssertFalse(text.isEmpty)
+            XCTAssertTrue(text.hasSuffix("[…]"),
+                          "a cut file must say so: \(text.count) chars")
+        }
+
+        // A payload already under budget is untouched, including non-text entries.
+        let small = [["name": "a.png", "sent": "yes"], ["name": "b.txt", "text": "short"]]
+        let untouched = ResearchContext.cappingAttachmentText(
+            small, to: ResearchContext.maxAttachmentPayloadBytes)
+        XCTAssertFalse(untouched.changed)
+        XCTAssertEqual(untouched.payload, small)
+    }
+
     func testEvidenceIsBudgetedAndReportsWhatWasDropped() {
         let snippet = String(repeating: "e", count: 600)
         let sources = (1...200).map {

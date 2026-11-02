@@ -244,6 +244,14 @@ enum TurnNotice: String, Codable, Equatable {
     /// rather than discovered at reopen, because that is when the reader can still do
     /// something about it.
     case attachmentNotStored
+    /// Attachment text was cut to fit the model's context, so the model saw a marked
+    /// excerpt rather than the whole file.
+    ///
+    /// Distinct from `attachmentMissing` (bytes gone) and `attachmentNotStored`
+    /// (record short): here the bytes were there, the file was read, and it is the
+    /// *context budget* that could not hold all of it. Said out loud because an answer
+    /// written from half a log is the kind of thing a reader needs to know.
+    case attachmentTrimmed
     /// A notice written by a newer build that this one does not know. Kept rather than
     /// failing the whole document: a `notices` array that refused to decode used to make
     /// an older build start from an empty library and overwrite the newer file.
@@ -314,6 +322,9 @@ enum TurnNotice: String, Codable, Equatable {
             return "An attachment could not be saved, so it will not be here when this "
                 + "thread is reopened. The answer was written with it — only the stored "
                 + "copy is missing."
+        case .attachmentTrimmed:
+            return "Attached text was shortened to fit the model's context, so the answer "
+                + "saw the marked excerpt rather than the whole file."
         case .attachmentMissing:
             return "Something attached to this question could not be sent, so the answer "
                 + "was written without it. The file is listed above as a record of what "
