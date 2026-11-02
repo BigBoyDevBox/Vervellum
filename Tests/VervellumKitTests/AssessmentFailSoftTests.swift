@@ -22,6 +22,19 @@ import FoundationNetworking
 /// assessment stage now follows it.
 final class AssessmentFailSoftTests: XCTestCase {
 
+    /// Records trace lines so the test can prove the safe-label rule: a foreign error
+    /// must reach the log as a type name only, never its description.
+    private final class CapturingLog: LogSink {
+        private let lock = NSLock()
+        private(set) var messages: [String] = []
+
+        func write(_ level: LogLevel, _ message: String) {
+            lock.lock()
+            messages.append(message)
+            lock.unlock()
+        }
+    }
+
     /// Forwards everything to a scripted stub except the assessment call, which fails
     /// with a plain `URLError`: a type no production path is supposed to leak, and
     /// therefore the exact shape of the hole.
@@ -47,18 +60,20 @@ final class AssessmentFailSoftTests: XCTestCase {
         }
 
         /// The stage is identified by its system prompt, the same way the pipeline's
-        /// tests identify it: all chat calls share one endpoint.
+        /// tests identify it: all chat calls share one endpoint. The whole prompt is
+        /// compared rather than a distinctive clause — a substring can keep matching
+        /// after a rewrite and make this test vacuous without failing.
         private static func isAssessment(_ request: URLRequest) -> Bool {
             guard let data = request.httpBody,
                   let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                   let messages = object["messages"] as? [[String: Any]],
                   let prompt = messages.first?["content"] as? String
             else { return false }
-            return prompt.contains("TASK: assess the material claims")
+            return prompt == ResearchPrompts.assess
         }
     }
 
-    func testAnUnknownAssessmentErrorKeepsTheStreamedAnswer() async {
+    func testAnUnknownAssessmentErrorKeepsTheStreamedAnswer() async throws {
         let stub = StubTransport { call in
             switch call.kind {
             case .json where call.url.absoluteString.hasPrefix("https://model.test/v1/chat/completions"):
@@ -87,9 +102,10 @@ final class AssessmentFailSoftTests: XCTestCase {
                                         searchEndpoint: "https://search.test",
                                         searchKind: .searxng,
                                         pageReading: .direct)
+        let log = CapturingLog()
         let runner = ResearchRunner(
             environment: .init(settings: settings, modelKey: "key", searchKey: nil),
-            trace: ResearchTrace(sink: SilentLog()),
+            trace: ResearchTrace(sink: log),
             transport: RawFailureTransport(stub: stub),
             commandRunner: StubCommandRunner { _ in .unrouted },
             attachmentBytes: { _ in nil })
@@ -107,5 +123,12 @@ final class AssessmentFailSoftTests: XCTestCase {
         // The answer still got the scrutiny the citation rule always applies, even though
         // the claim check could not run.
         XCTAssertFalse(turn.notices.contains(.invalidCitation))
+
+        // A foreign error reaches the log as a type name only. `URLError` carries a
+        // failing URL in its description; that text must not appear beside the warning.
+        let warning = try XCTUnwrap(log.messages.first { $0.contains("Assessment unavailable") })
+        XCTAssertTrue(warning.contains("URLError"), warning)
+        XCTAssertFalse(warning.contains("badServerResponse"), warning)
+        XCTAssertFalse(warning.contains("https://"), warning)
     }
 }
