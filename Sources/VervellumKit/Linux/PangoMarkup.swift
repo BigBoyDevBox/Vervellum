@@ -360,9 +360,21 @@ enum PangoMarkup {
         return heading + "\n" + rows.joined(separator: "\n")
     }
 
+    /// The scheme a follow-up link carries. A private prefix rather than a bare
+    /// question, so a link that is a web URL can never be mistaken for one.
+    static let askScheme = "vervellum-ask:"
+
+    /// A follow-up as a link whose target is the question itself, percent-encoded —
+    /// a space, a quote or a newline in a question must not end the href.
+    static func askLink(_ question: String) -> String {
+        askScheme + question.addingPercentEncoding(withAllowedCharacters: .alphanumerics)!
+    }
+
     static func followups(_ followups: [String]) -> String? {
         guard !followups.isEmpty else { return nil }
-        let rows = followups.map { "↳ " + GTK.escape($0) }.joined(separator: "\n")
+        let rows = followups.map { followup in
+            "<a href=\"" + askLink(followup) + "\">↳ " + GTK.escape(followup) + "</a>"
+        }.joined(separator: "\n")
         return sectionLabel("Next") + "\n<span foreground=\"\(Colour.accent)\">\(rows)</span>"
     }
 
