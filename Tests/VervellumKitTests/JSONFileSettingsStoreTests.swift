@@ -34,6 +34,24 @@ final class JSONFileSettingsStoreTests: XCTestCase {
         XCTAssertEqual(running.string(for: "modelName"), "new")
     }
 
+    func testMalformedExternalEditsAreNotOverwritten() throws {
+        let running = JSONFileSettingsStore(url: file)
+        running.setString("old", for: "modelName")
+        for edited in ["{ unfinished", "[]"] {
+            try Data(edited.utf8).write(to: file)
+            running.setBool(true, for: "shortcutInstalled")
+            XCTAssertEqual(try Data(contentsOf: file), Data(edited.utf8))
+        }
+    }
+
+    func testDeletingTheFileDoesNotResurrectCachedKeys() throws {
+        let running = JSONFileSettingsStore(url: file)
+        running.setString("old", for: "modelName")
+        try FileManager.default.removeItem(at: file)
+        running.setBool(true, for: "shortcutInstalled")
+        XCTAssertNil(JSONFileSettingsStore(url: file).string(for: "modelName"))
+    }
+
     func testKeyRemovalDoesNotRestoreExternallyRemovedKeys() {
         let running = JSONFileSettingsStore(url: file)
         running.setString("old", for: "removedExternally")
