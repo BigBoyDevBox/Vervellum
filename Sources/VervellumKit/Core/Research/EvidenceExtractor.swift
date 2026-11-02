@@ -58,8 +58,8 @@ enum EvidenceExtractor {
         }.prefix(maxSources).enumerated().map { offset, hit in
             Source(number: startNumber + offset,
                    url: hit.url,
-                   title: hit.title,
-                   snippet: hit.snippet,
+                   title: HostileText.stripped(hit.title),
+                   snippet: HostileText.stripped(hit.snippet),
                    publishedAt: hit.date)
         }
     }

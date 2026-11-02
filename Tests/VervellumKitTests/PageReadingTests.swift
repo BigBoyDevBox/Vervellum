@@ -574,4 +574,18 @@ final class PageReadingTests: XCTestCase {
         source.fullText = "The page."
         XCTAssertTrue(source.wasRead)
     }
+
+    /// A hostile page can carry a bidi override (so the panel shows something other
+    /// than what the model was shown) or a NUL (which truncates a GTK C string).
+    /// Neither survives extraction; the words around them do.
+    func testBidiAndNULCharactersAreDroppedFromPageText() {
+        let html = "<p>Safe\u{202E}reversed\u{202C} end\u{0}.</p>"
+        let text = HTMLTextExtractor.text(from: html, limit: 4_000, minimum: 0)
+        XCTAssertFalse(text.contains("\u{202E}"))
+        XCTAssertFalse(text.contains("\u{202C}"))
+        XCTAssertFalse(text.contains("\u{0}"))
+        XCTAssertTrue(text.contains("Safe"))
+        XCTAssertTrue(text.contains("reversed"))
+        XCTAssertTrue(text.hasSuffix("end."))
+    }
 }
