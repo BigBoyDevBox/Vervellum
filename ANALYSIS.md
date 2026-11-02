@@ -4,6 +4,161 @@
 original PRs and supersedes every pending/in-flight table below. Consult it before
 implementing an older proposal; many findings below are now fixed or superseded.
 
+## Review findings — 2026-11-02 (Longcat)
+
+A fresh read of `main` at `0311b35`, ordered by severity. Findings that an open pull
+request already implements are intentionally absent: the assessment fail-soft
+hardening, MCP string ids, hotkey registration reporting, SearXNG blank queries, the
+Linux `/help` legend, finding-chip accessibility, platform-aware update assets, and a
+status-item Stop All Research action are all covered by PRs open at this snapshot.
+Everything below is unimplemented. The macOS presentation layer could not be compiled
+or run in the reviewing environment; anything touching it says so.
+
+### First-use “Research the Selection” can seed nothing
+
+bugs — nice-to-have (confidence: medium; verify on a Mac)
+
+`PanelController.showWithSelection()` (`Vervellum/Panel/PanelController.swift:88-93`)
+calls `show()` and then posts `.vervellumSeedComposer` synchronously, while
+`PanelRootView` subscribes through `.onReceive`
+(`Vervellum/Views/PanelRootView.swift:160`). If the panel is being created for the
+first time in this launch, the notification can arrive before the SwiftUI tree has
+installed its observer, so the feature’s first press opens an empty panel; later
+presses work because the hosting view persists. Suggested fix: carry the seed as state
+the root view consumes when it appears (a small observable passed into the root view,
+or a pending slot consumed in `onAppear`) rather than a fire-and-forget notification.
+
+### Pango emphasis parser mishandles `***bold italic***`
+
+bugs — nice-to-have
+
+`PangoMarkup.nextMarker(in:)` (`Sources/VervellumKit/Linux/PangoMarkup.swift:252-290`)
+tries `**` before `*`, so the common triple-marker spelling pairs the wrong run and
+renders as `<b>*text*</b>` followed by a stray literal asterisk. macOS is unaffected
+(`AttributedString(markdown:)`). Suggested fix: count the delimiter run first and treat
+three markers as bold+italic, or prefer the longest delimiter at the same position.
+
+### `testContinuousSnapshotsDoNotStarveCheckpoints` is flaky under `--parallel`
+
+general issues — nice-to-have
+
+`Tests/VervellumKitTests/ThreadArchiveTests.swift:263-276` (assertion at :273) assumes
+the 0.05 s debounce timer has fired within 0.5 s of wall time. Under a full
+`swift test --parallel` run the archive's private queue can be starved that long; the
+test failed on the review host in three full runs and passed on retry and serially.
+Suggested fix: poll for the file with a bounded expectation, then flush and assert the
+final contents, keeping the continuous-save loop as the behaviour under test. Not
+implemented here because another PR already edits this test file.
+
+### Every notice wears the warning triangle
+
+visual issues and aesthetics — nice-to-have
+
+`NoticesView` (`Vervellum/Views/TurnView.swift:248`) renders every `TurnNotice` in the
+“mixed” amber with `exclamationmark.triangle`, including positive events such as
+`answerRegathered`. The panel otherwise works to keep colour and glyph meaningful.
+Suggested fix: give `TurnNotice` a tone/symbol mapping and use it in `NoticesView` (and
+optionally `PangoMarkup.notices`).
+
+### Source dates are shown exactly as the search backend spelled them
+
+visual issues — nice-to-have
+
+`SourceRow` (`Vervellum/Views/SourcesView.swift:163-165`) and `SourcePreview` paste
+`source.publishedAt` straight from the provider into a dense row or tooltip, so an ISO
+timestamp (`2024-01-01T12:00:00Z`) reads as API text. Suggested fix: normalise common
+ISO-8601 shapes once in Core to a short date, leaving anything unparseable as written.
+
+### “Clear” on a stored provider key deletes it immediately, despite the pane’s save model
+
+general issues — nice-to-have
+
+The Providers pane’s rule is that nothing is written until Save
+(`Vervellum/Settings/ProvidersView.swift`, type documentation), but the shared key row’s
+`onClear` closure (`Vervellum/Settings/ProvidersView.swift:241-253, 494`) deletes the
+Keychain item at once, unlike provider removal which is deferred to Save. Quitting
+Settings without saving therefore leaves the provider unconfigured while the UI shows
+the change as pending. Suggested fix: either defer the deletion to Save along with
+`accountsToDelete`, or make the button help and section footnote say plainly that Clear
+is immediate.
+
+### Escape in the history search field closes the whole list
+
+usability — nice-to-have
+
+While typing a query in History, one Escape throws away the list rather than clearing
+the query. `PanelController.installKeyMonitor`
+(`Vervellum/Panel/PanelController.swift:312-324`) intercepts Escape before the responder
+chain, and `backOut()` (`Vervellum/Views/PanelRootView.swift:1043-1075`) does not know
+about the query. A second press is needed to close the list. Suggested fix: when
+`showsHistory` is on and the query is non-empty, clear the query first; only a second
+Escape leaves the list. Not implemented here because another PR already edits
+`PanelRootView.swift`.
+
+### The Linux composer cannot queue a follow-up while a run is in flight
+
+missing features / usability — nice-to-have
+
+The shared `ResearchSession` supports a three-question queue and the macOS panel exposes
+it, but `LinuxPanel.wireComposer` swallows Return mid-run
+(`Sources/VervellumKit/Linux/LinuxPanel.swift:308`) and `submit()` declines outright
+(`:334`). The draft simply sits there with no feedback, and the comment claims parity
+with macOS that the code does not provide. Suggested fix: allow `active.ask` while
+running, render queued chips like macOS, and wire `onQueueReturned` to restore
+questions after a Stop.
+
+### `/model <name>` argument completion is absent
+
+missing features — nice-to-have
+
+`completions(for:)` (`Sources/VervellumKit/Core/Text/ComposerCommand.swift:136`) returns
+nil once the input contains a space, so `/model` — a command that takes an argument —
+cannot complete the provider names a reader actually needs to type. The providers pane
+is where those names live, so this is discoverability, not capability. Suggested fix:
+extend the completion contract with an argument-aware variant for commands that take one,
+driven by `ProviderSettings.modelProfiles`.
+
+### History search scans every question and answer on each keystroke
+
+performance — nice-to-have
+
+`ThreadLibrary.search(_:)` (`Sources/VervellumKit/Core/Store/ThreadLibrary.swift:118-126`)
+walks every turn's question *and* full answer, and `HistoryView`
+(`Vervellum/Views/HistoryView.swift:25`) runs it on every keystroke with no debounce.
+A47 made the walk allocation-free, but with the limit at 2000 threads the scan itself is
+proportional to stored text. Suggested fix: match questions first and fall back to
+answers only when the question set is small; debounce the query by ~150 ms.
+
+### Jump between citations with a keyboard shortcut
+
+novel ideas — nice-to-have
+
+Reading a long answer against its source list is the core loop of this app, and there
+is no keyboard way to walk it. Ctrl-] / Ctrl-[ (or ⌘↓/⌘↑ outside the composer) would
+move the selection to the next or previous `[n]` marker in `MarkdownText` /
+`AnswerTextView`. Suggested fix: add the key handling and a caret move; no new data.
+
+### Show the waiting-question count on the status item
+
+novel ideas — nice-to-have
+
+A queued follow-up is invisible while the panel is hidden, the same way the busy glyph
+makes detached runs visible. `AppDelegate.makeMenu()`
+(`Vervellum/App/AppDelegate.swift:387`) could show the queue length beside the Ask items
+or in the Stop All Research item’s title. Suggested fix: read `engine.queue.count` when
+the menu is built and update it from the existing `$isBusy`/queue observations.
+
+### Deliberately not raised
+
+Two apparent defects are pinned decisions rather than bugs, recorded so they are not
+re-litigated: setext headings (`Title\n=====`) stay literal prose because
+`MarkdownParserTests.swift:151` pins `"a | b\n---"` as paragraph-plus-rule, guarding the
+table delimiter; and per-token persistence is deliberately bounded by A15 (“not
+per-token writes”) even though the current save path follows each coalesced snapshot.
+Desktop-only visual behaviour (Liquid Glass fallback, Reduce Transparency, full-screen
+placement, IME, scrolling smoothness) needs a real macOS session and is not assessed
+here.
+
 ## Historical analysis, before PR #69
 
 The remaining text preserves earlier findings, identifiers, and acceptance criteria.
