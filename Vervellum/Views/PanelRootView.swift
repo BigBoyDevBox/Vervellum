@@ -104,9 +104,7 @@ struct PanelRootView: View {
     /// The measured width of the composer's row, once layout has run.
     @State private var composerRowWidth: CGFloat?
 
-    /// Horizontal room the send button and its spacing take from the composer's row.
-    /// Named rather than inlined: the height estimate silently drifts when the button
-    /// is restyled, and the bug is invisible until the composer wraps a line early.
+    /// Measure wrapped text at the width left by the controls actually on screen.
     enum ComposerControls: Int {
         case ask = 1
         case askAndStop = 2
@@ -115,7 +113,7 @@ struct PanelRootView: View {
     private static let composerButtonSide: CGFloat = 24
 
     static func composerTextWidth(rowWidth: CGFloat, controls: ComposerControls) -> CGFloat {
-        rowWidth - (composerButtonSide + PanelTheme.Space.small)
+        rowWidth - CGFloat(controls.rawValue) * (composerButtonSide + PanelTheme.Space.small)
     }
 
     /// Whether the research-level list is open above the composer. See `levelPicker`,

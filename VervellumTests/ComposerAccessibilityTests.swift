@@ -30,6 +30,6 @@ final class ComposerAccessibilityTests: XCTestCase {
 
     private func textView(in view: NSView) -> NSTextView? {
         if let text = view as? NSTextView { return text }
-        return view.subviews.lazy.compactMap { textView(in: $0) }.first
+        return view.subviews.lazy.compactMap { self.textView(in: $0) }.first
     }
 }
