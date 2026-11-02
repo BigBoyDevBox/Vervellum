@@ -76,13 +76,17 @@ final class HTTPTransport: NSObject, URLSessionDataDelegate, HTTPTransporting, @
     /// exchange registry, is only unique *within* a session.
     private var session: URLSession!
 
-    override init() {
-        super.init()
-        session = Self.makeSession(delegate: self)
+    override convenience init() {
+        self.init(configuration: .ephemeral)
     }
 
-    private static func makeSession(delegate: URLSessionDelegate) -> URLSession {
-        let configuration = URLSessionConfiguration.ephemeral
+    init(configuration: URLSessionConfiguration) {
+        super.init()
+        session = Self.makeSession(delegate: self, configuration: configuration)
+    }
+
+    private static func makeSession(delegate: URLSessionDelegate,
+                                    configuration: URLSessionConfiguration) -> URLSession {
         // The idle timeout, overridden per request for non-streaming calls.
         // `timeoutIntervalForResource` is deliberately not set — it is stored but never
         // read by FoundationNetworking, so relying on it would be a timeout that
@@ -274,10 +278,28 @@ final class HTTPTransport: NSObject, URLSessionDataDelegate, HTTPTransporting, @
     /// reach a host the user did not configure — while letting `http → https` resolve.
     ///
     /// Only for requests that carry no credentials. Nothing else may use it.
-    func fetch(_ request: URLRequest, limit: Int) async throws -> (HTTPURLResponse, Data) {
-        let (http, body) = try await open(request, limit: limit)
-        let data = try await collect(body, limit: limit)
-        return (http, data)
+    func fetch(_ request: URLRequest, limit: Int,
+               deadline: TimeInterval) async throws -> (HTTPURLResponse, Data) {
+        guard deadline.isFinite, deadline > 0 else { throw ResearchError.timedOut }
+        // An independent clock interrupts silent headers/bodies, not just arriving chunks.
+        do {
+            return try await withThrowingTaskGroup(of: (HTTPURLResponse, Data).self) { group in
+                defer { group.cancelAll() }
+                group.addTask {
+                    let (http, body) = try await self.open(request, limit: limit)
+                    let data = try await self.collect(body, limit: limit, deadline: deadline)
+                    return (http, data)
+                }
+                group.addTask {
+                    try await Task.sleep(for: .seconds(deadline))
+                    throw Self.tookTooLong(deadline)
+                }
+                guard let result = try await group.next() else { throw ResearchError.connectionFailed }
+                return result
+            }
+        } catch {
+            throw Self.sanitized(error)
+        }
     }
 
     /// Sends `request` and yields each `data:` frame's decoded JSON object in order,
