@@ -166,6 +166,18 @@ final class ResearchEngine: ObservableObject {
         activeSession.cancel()
     }
 
+    /// Stops every session, visible or detached.
+    ///
+    /// The status item's emergency brake. `/new` detaches a run so it keeps working,
+    /// which is what the reader asked for at the time — but it keeps spending searches
+    /// and model calls until its thread is reopened, and the reader may not remember it
+    /// is there. The visible session's waiting questions are handed back to the composer
+    /// by its own `cancel`; a detached thread's queue belongs to a conversation that is
+    /// not on screen, and is dropped by the same rule `discard` documents.
+    func cancelAll() {
+        for session in sessions.values { session.cancel() }
+    }
+
     func removeQueued(_ id: UUID) {
         activeSession.removeQueued(id)
     }
