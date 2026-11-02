@@ -10,11 +10,15 @@ import Foundation
 /// So the pipeline is four passes, in this order, and the order matters:
 ///
 /// 1. **Remove whole elements** whose content is never prose — `script`, `style`, and
-///    the chrome elements (`nav`, `header`, `footer`, `aside`) that otherwise
-///    contribute the same forty links on every page of a site.
+///    the rest of the never-prose list. An unclosed `script` or `style` is cut to the
+///    end, which is what a browser does. Site chrome (`nav`, `header`, `footer`,
+///    `aside`) is *not* removed yet: an article's own `<header>` holds the headline
+///    and the lede, and stripping it first throws those away.
 /// 2. **Narrow to the article** when the page says where it is. `<main>` and
 ///    `<article>` are the two elements whose entire purpose is to answer that, and a
-///    page that uses one has told us what it considers the content.
+///    page that uses one has told us what it considers the content. Chrome is stripped
+///    only when neither marker yields a real article, so a site header still goes and
+///    an article header stays.
 /// 3. **Turn block boundaries into line breaks** *before* stripping tags, or every
 ///    paragraph, heading and list item runs into the next one and the model reads a
 ///    single unpunctuated wall.
@@ -48,8 +52,14 @@ enum HTMLTextExtractor {
     static func text(from html: String,
                      limit: Int = maxCharacters,
                      minimum: Int = minimumUsefulCharacters) -> String {
-        var working = removeElements(Self.strippedElements, in: html)
-        working = article(in: working) ?? working
+        var working = removeComments(in: html)
+        working = removeElements(Self.neverProse, in: working)
+        working = dropUnclosed(Self.rawTextElements, in: working)
+        if let article = article(in: working) {
+            working = article
+        } else {
+            working = removeElements(Self.chromeElements, in: working)
+        }
         working = breakingBlocks(in: working)
         working = stripTags(working)
         working = decodingEntities(working)
@@ -65,10 +75,74 @@ enum HTMLTextExtractor {
     /// than a purist one: on a typical site they are identical on every page, so they
     /// crowd out the part that differs — and a model shown the same sidebar under four
     /// sources will find agreement between them that does not exist.
-    private static let strippedElements = [
+    /// Content that is never the article, wherever it sits.
+    private static let neverProse = [
         "script", "style", "noscript", "template", "svg", "iframe", "object", "canvas",
-        "form", "nav", "header", "footer", "aside",
+        "form",
     ]
+
+    /// Elements whose body is raw text. An unclosed one runs to the end of the
+    /// document; leaving it in would hand the model the page's script.
+    private static let rawTextElements = ["script", "style"]
+
+    /// Site chrome. Stripped only when the page did not mark an article, because the
+    /// same tag names wrap the headline inside `<article>`.
+    private static let chromeElements = ["nav", "header", "footer", "aside"]
+
+    private static func removeComments(in html: String) -> String {
+        var working = html
+        if let regex = try? NSRegularExpression(
+            pattern: "<!--.*?-->", options: [.dotMatchesLineSeparators]) {
+            working = regex.stringByReplacingMatches(
+                in: working, range: NSRange(working.startIndex..., in: working), withTemplate: " ")
+        }
+        if let start = working.range(of: "<!--") {
+            working = String(working[..<start.lowerBound])
+        }
+        return working
+    }
+
+    /// Cuts an unclosed raw-text element to the end of the document.
+    ///
+    /// Closed elements are already gone. What remains of `<script` or `<style` has no
+    /// closer, and a browser would not show anything after the opener either.
+    private static func dropUnclosed(_ names: [String], in html: String) -> String {
+        var working = html
+        for name in names {
+            guard let start = openingTagRange(name, in: working) else { continue }
+            if hasCloser(name, after: start.lowerBound, in: working) { continue }
+            working = String(working[..<start.lowerBound])
+        }
+        return working
+    }
+
+    private static func openingTagRange(_ name: String, in html: String) -> Range<String.Index>? {
+        let needle = "<" + name
+        var search = html.startIndex
+        while search < html.endIndex,
+              let found = html.range(of: needle, options: [.caseInsensitive], range: search..<html.endIndex) {
+            let after = found.upperBound
+            if after == html.endIndex || !html[after].isLetter {
+                return found
+            }
+            search = html.index(after: found.lowerBound)
+        }
+        return nil
+    }
+
+    private static func hasCloser(_ name: String, after start: String.Index, in html: String) -> Bool {
+        let needle = "</" + name
+        var search = start
+        while search < html.endIndex,
+              let found = html.range(of: needle, options: [.caseInsensitive], range: search..<html.endIndex) {
+            let after = found.upperBound
+            if after == html.endIndex || html[after].isWhitespace || html[after] == ">" {
+                return true
+            }
+            search = html.index(after: found.lowerBound)
+        }
+        return false
+    }
 
     private static func removeElements(_ names: [String], in html: String) -> String {
         var working = html

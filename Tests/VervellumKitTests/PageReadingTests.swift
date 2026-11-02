@@ -59,6 +59,36 @@ final class PageReadingTests: XCTestCase {
         XCTAssertFalse(text.contains("Sidebar clutter"))
     }
 
+    /// HTML5 puts the headline and lede in `<header>` *inside* the article. Stripping
+    /// every header before isolating the article drops the part the page is named for.
+    func testAnArticleHeaderIsKeptAndASiteHeaderIsNot() {
+        let body = String(repeating: "The body continues. ", count: 20)
+        let html = """
+            <html><body>
+            <header><a href="/">Site title</a></header>
+            <article>
+            <header><h1>The real headline</h1><p>The lede that the claim rests on.</p></header>
+            <p>\(body)</p>
+            </article>
+            <footer>Copyright notice</footer>
+            </body></html>
+            """
+        let text = HTMLTextExtractor.text(from: html, limit: 4_000, minimum: 0)
+        XCTAssertTrue(text.contains("The real headline"), text)
+        XCTAssertTrue(text.contains("The lede that the claim rests on."), text)
+        XCTAssertFalse(text.contains("Site title"), text)
+        XCTAssertFalse(text.contains("Copyright notice"), text)
+    }
+
+    /// An unclosed script runs to the end of the document in a browser. Leaving its
+    /// body in the extract hands the model the page's JavaScript.
+    func testAnUnclosedScriptDoesNotBecomePageText() {
+        let html = "<html><body><script>var secret = \"do not read me\";<p>The article.</p></body></html>"
+        let text = HTMLTextExtractor.text(from: html, limit: 4_000, minimum: 0)
+        XCTAssertFalse(text.contains("do not read me"), text)
+        XCTAssertFalse(text.contains("The article"), text)
+    }
+
     /// A `<main>` holding only a heading is a page whose content is elsewhere: trusting
     /// the marker there loses the page.
     func testAnEmptyArticleMarkerFallsBackToTheDocument() {
