@@ -106,11 +106,13 @@ final class SearchMCPClientTests: XCTestCase {
         let transport = StubTransport { call in
             switch call.body?["method"] as? String {
             case "initialize":
-                return .json(["jsonrpc": "2.0", "id": "1",
+                // A JSON number, integral: the spelling this client itself sends.
+                return .json(["jsonrpc": "2.0", "id": 1.0,
                               "result": ["protocolVersion": "2025-03-26"]])
             case "notifications/initialized":
                 return .json([:])
             case "tools/list":
+                // The same id echoed as a string, which JSON-RPC also allows.
                 return .json(["jsonrpc": "2.0", "id": "2",
                               "result": ["tools": [listing]]])
             default:
@@ -140,6 +142,27 @@ final class SearchMCPClientTests: XCTestCase {
         do {
             try await client.connect()
             XCTFail("a boolean id must not be read as request 1")
+        } catch let error as ResearchError {
+            XCTAssertEqual(error.message,
+                           "The search provider returned an invalid response to initialize.")
+        }
+    }
+
+    /// `intValue` would truncate `1.9` to request 1; JSON-RPC ids are integers, so a
+    /// fractional reply must not match any in-flight call.
+    func testAFractionalReplyIDIsNotRequestOne() async throws {
+        let transport = StubTransport { call in
+            guard call.body?["method"] as? String == "initialize" else { return .unrouted }
+            return .json(["jsonrpc": "2.0", "id": 1.9,
+                          "result": ["protocolVersion": "2025-03-26"]])
+        }
+        let client = SearchMCPClient(endpoint: URL(string: "https://search.test")!,
+                                     apiKey: "key",
+                                     trace: ResearchTrace(sink: SilentLog()),
+                                     transport: transport)
+        do {
+            try await client.connect()
+            XCTFail("a fractional id must not be read as request 1")
         } catch let error as ResearchError {
             XCTAssertEqual(error.message,
                            "The search provider returned an invalid response to initialize.")

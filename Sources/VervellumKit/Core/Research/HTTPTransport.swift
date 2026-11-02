@@ -598,11 +598,12 @@ final class HTTPTransport: NSObject, URLSessionDataDelegate, HTTPTransporting, @
     ///
     /// Shared with `MCPSession`, which checks the same fact on the buffered-response
     /// path. A JSON boolean is rejected explicitly: `true` is not a legal id for a
-    /// request this code sent.
+    /// request this code sent, and a fractional number is rejected too — `intValue`
+    /// would truncate `1.9` to request 1, while JSON-RPC ids are integers.
     static func isJSONRPCID(_ value: Any?, equalTo expected: Int) -> Bool {
         if let number = value as? NSNumber {
             guard String(cString: number.objCType) != Self.booleanObjCType else { return false }
-            return number.intValue == expected
+            return Int(exactly: number.doubleValue) == expected
         }
         if let text = value as? String { return Int(text) == expected }
         return false
