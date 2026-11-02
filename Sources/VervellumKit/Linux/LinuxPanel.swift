@@ -65,6 +65,14 @@ final class LinuxPanel {
     /// Set when a turn is appended, so the next render scrolls to it even if the reader
     /// had scrolled up: a question just asked is always the thing to look at.
     private var scrollToNewest = false
+    /// The live answer label of each rendered turn, so streaming growth can repaint one
+    /// label instead of the whole thread. Cleared on every full rebuild — the widgets
+    /// die with the rebuild (`gtk_box_remove` drops the last reference), and a stored
+    /// pointer to one would be a pointer into freed memory.
+    private var turnAnswerLabels: [UUID: GTK.Widget] = [:]
+    /// What the last render drew. The diff against the next snapshot decides between
+    /// the in-place answer update and a full rebuild.
+    private var lastRenderedTurns: [ResearchTurn] = []
 
     init(application: UnsafeMutablePointer<GtkApplication>,
          environment: LinuxEnvironment = .shared) {
@@ -545,6 +553,31 @@ final class LinuxPanel {
     /// already paces published snapshots to ~10 Hz — the same rule `lastRender` used
     /// to implement by hand — so each `onChange` is worth a render.
     private func render() {
+        let turns = active.thread.turns
+        // The in-place path. Streaming growth of the live answer is the change that
+        // arrives at snapshot pace — ten times a second on a long answer — and a full
+        // rebuild for it re-parses the markup of every turn the reader is not looking
+        // at, on a thread long enough to feel it. One label is repainted instead.
+        if turns.count == lastRenderedTurns.count,
+           let old = lastRenderedTurns.last,
+           let live = turns.last,
+           turns.dropLast().elementsEqual(lastRenderedTurns.dropLast()),
+           Self.isAnswerGrowth(old, live),
+           let label = turnAnswerLabels[live.id] {
+            lastRenderedTurns = turns
+            // The same scroll contract as a full render, sampled before the label's
+            // height changes: follow the growth only from the bottom.
+            let follow = scrollToNewest || GTK.isScrolledToBottom(threadScroller)
+            scrollToNewest = false
+            gtk_label_set_markup(vv_label(label),
+                                 PangoMarkup.answer(live.answer, sources: live.sources))
+            if follow {
+                let scroller = threadScroller
+                GTK.onMainLoop { GTK.scrollToBottom(scroller) }
+            }
+            return
+        }
+
         // Sampled before the rebuild, which resets the content height: a reader who
         // had scrolled up to re-read is left where they were; one who was at the end
         // follows the answer as it grows. The rebuild keeps the scroller's value, so
@@ -552,6 +585,7 @@ final class LinuxPanel {
         let follow = scrollToNewest || GTK.isScrolledToBottom(threadScroller)
         scrollToNewest = false
         GTK.removeAllChildren(of: threadBox)
+        turnAnswerLabels = [:]
 
         if active.thread.turns.isEmpty {
             GTK.append(threadBox, GTK.markupLabel(Self.emptyStateMarkup(environment: environment)))
@@ -560,6 +594,7 @@ final class LinuxPanel {
         for turn in active.thread.turns {
             GTK.append(threadBox, turnView(turn))
         }
+        lastRenderedTurns = active.thread.turns
 
         gtk_label_set_markup(vv_label(statusLabel),
                              active.isRunning
@@ -572,6 +607,26 @@ final class LinuxPanel {
             let scroller = threadScroller
             GTK.onMainLoop { GTK.scrollToBottom(scroller) }
         }
+    }
+
+    /// Whether `live` is `old` with the same answer plus more of it, and nothing else
+    /// changed — the one case worth painting in place, and only when there was already
+    /// an answer to grow: the empty-to-first-chunk step swaps the caret widget for the
+    /// answer label and stays a full rebuild.
+    /// Compared on copies with the answer blanked, so every other field — stage,
+    /// sources, notices, draft, the transient in-flight counts — must be equal for
+    /// this to say yes. Anything else a snapshot carries is a different kind of
+    /// change and takes the full rebuild.
+    static func isAnswerGrowth(_ old: ResearchTurn, _ live: ResearchTurn) -> Bool {
+        guard old.id == live.id,
+              !old.answer.isEmpty,
+              live.answer.hasPrefix(old.answer)
+        else { return false }
+        var before = old
+        var after = live
+        before.answer = ""
+        after.answer = ""
+        return before == after
     }
 
     private func turnView(_ turn: ResearchTurn) -> GTK.Widget {
@@ -616,6 +671,8 @@ final class LinuxPanel {
         if !turn.answer.isEmpty {
             let answer = GTK.markupLabel(PangoMarkup.answer(turn.answer, sources: turn.sources))
             GTK.onLinkActivated(answer, Self.openLink)
+            // Registered for the in-place streaming update; see `turnAnswerLabels`.
+            turnAnswerLabels[turn.id] = answer
             GTK.append(box, answer)
         }
         if let findings = PangoMarkup.findings(turn.findings) {
