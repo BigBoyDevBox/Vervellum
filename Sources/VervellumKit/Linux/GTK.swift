@@ -140,6 +140,15 @@ enum GTK {
         gtk_widget_add_controller(widget, controller)
     }
 
+    /// Puts text on the clipboard for other apps, the write side of `readClipboard`.
+    /// `gdk_clipboard_set_text` stores the value synchronously and makes this window
+    /// the clipboard owner, which is exactly what `/copy` wants: no callback, and
+    /// nothing to wait on.
+    static func setClipboardText(_ widget: Widget, _ text: String) {
+        guard let clipboard = vv_widget_clipboard(widget) else { return }
+        gdk_clipboard_set_text(clipboard, text)
+    }
+
     /// Reads the clipboard for something to attach, and calls back on the main loop.
     ///
     /// Files win, then words, then pictures — the order the pasteboard uses, decided

@@ -357,8 +357,15 @@ final class LinuxPanel {
                          + "`~/.config/vervellum/settings.json`.")
         case .copyLastAnswer:
             GTK.setText(composer, "")
-            appendNotice("Select the answer text and copy it — there is no clipboard "
-                         + "command on Linux yet.")
+            // The same text macOS puts on the pasteboard: the last turn's plain-text
+            // transcript, not a selection the reader has no practical way to make in
+            // a GTK label.
+            guard let last = Self.turnToCopy(in: active.thread) else {
+                appendNotice("There is no answer to copy yet.")
+                return
+            }
+            GTK.setClipboardText(composer, last.transcript)
+            appendNotice("Copied the answer.")
         case .selectModel(let name):
             GTK.setText(composer, "")
             selectModel(named: name)
@@ -648,6 +655,14 @@ final class LinuxPanel {
     private static func openLink(_ uri: String) -> Bool {
         GTK.openLink(uri)
         return true
+    }
+
+    /// The turn `/copy` means: the last real question's transcript. A panel notice
+    /// (a `/help` reply, the "Copied the answer." line itself) is a turn with no
+    /// question, so it is skipped — `/copy` twice in a row must copy the same answer
+    /// both times, not the notice the first one printed.
+    static func turnToCopy(in thread: ResearchThread) -> ResearchTurn? {
+        thread.turns.last { !$0.question.isEmpty }
     }
 
     private static func emptyStateMarkup(environment: LinuxEnvironment) -> String {
