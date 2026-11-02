@@ -65,6 +65,9 @@ final class LinuxPanel {
     /// Set when a turn is appended, so the next render scrolls to it even if the reader
     /// had scrolled up: a question just asked is always the thing to look at.
     private var scrollToNewest = false
+    /// Whether the thread area is showing the history list rather than the thread.
+    /// Left by Escape, by opening a thread, or by asking a question.
+    private var showsHistory = false
 
     init(application: UnsafeMutablePointer<GtkApplication>,
          environment: LinuxEnvironment = .shared) {
@@ -142,6 +145,13 @@ final class LinuxPanel {
         gtk_widget_set_hexpand(title, 1)
         GTK.append(bar, title)
 
+        let history = GTK.button("History") { [weak self] in
+            guard let self else { return }
+            self.showsHistory.toggle()
+            self.render()
+        }
+        GTK.addStyle(history, "level")
+        GTK.append(bar, history)
         GTK.append(bar, GTK.button("New") { [weak self] in self?.newThread() })
         GTK.append(bar, GTK.button("Close") { [weak self] in
             guard let self else { return }
@@ -249,6 +259,15 @@ final class LinuxPanel {
         GTK.observeKeys(composer) { [weak self] keyval, modifiers in
             guard let self else { return false }
             if GTK.isEscape(keyval) {
+                // The order a user expects to be able to undo things: leave the
+                // history list, then clear a draft and whatever is attached to it,
+                // then close. Closing on the first press would throw away both a
+                // half-typed question and the list they were reading.
+                if self.showsHistory {
+                    self.showsHistory = false
+                    self.render()
+                    return true
+                }
                 // Escape clears a draft first and only then closes, so a half-typed
                 // question is never thrown away by a reflex key press.
                 if GTK.text(of: self.composer).isEmpty, self.pendingAttachments.isEmpty {
@@ -316,6 +335,7 @@ final class LinuxPanel {
     private func newThread() {
         // Detached, not cancelled: a run in flight on the old session keeps going —
         // the map holds it, and its finished thread is still saved to the archive.
+        showsHistory = false
         activate(makeSession(thread: ResearchThread()))
         GTK.setText(composer, "")
         pendingAttachments = []
@@ -351,10 +371,14 @@ final class LinuxPanel {
         case .showHelp:
             GTK.setText(composer, "")
             appendNotice(ComposerCommand.helpText)
-        case .openSettings, .openHistory:
+        case .openSettings:
             GTK.setText(composer, "")
-            appendNotice("That command is macOS-only for now. Settings live in "
-                         + "`~/.config/vervellum/settings.json`.")
+            appendNotice("Settings live in `~/.config/vervellum/settings.json`. "
+                         + "Edit it and the next run reads the new values.")
+        case .openHistory:
+            GTK.setText(composer, "")
+            showsHistory = true
+            render()
         case .copyLastAnswer:
             GTK.setText(composer, "")
             appendNotice("Select the answer text and copy it — there is no clipboard "
@@ -374,6 +398,9 @@ final class LinuxPanel {
             // prior value — a queued ask must not switch off the run it queued behind.
             let followWasOn = scrollToNewest
             scrollToNewest = true
+            // A question asked from the history view is the reader leaving it — the
+            // thread they were reading stays in the archive unchanged.
+            showsHistory = false
             let outcome = active.ask(question, mode: level,
                                      attachments: takePendingAttachments())
             if outcome != .started { scrollToNewest = followWasOn }
@@ -445,10 +472,9 @@ final class LinuxPanel {
     private func activate(_ session: ResearchSession) {
         sessions[session.id] = session
         active = session
-        // A settled session can never be shown again (there is no /history here yet)
-        // and its final thread was already saved and flushed by `onRunningChange`,
-        // so drop it rather than letting the map grow for the life of the window.
-        sessions = sessions.filter { $0.value === session || $0.value.isRunning }
+        // A settled session stays in the map now: the history list can show its
+        // thread again, and a run in flight keeps it alive regardless. Bounded by
+        // the archive's kept-thread limit rather than the window's life.
         render()
     }
 
@@ -553,24 +579,93 @@ final class LinuxPanel {
         scrollToNewest = false
         GTK.removeAllChildren(of: threadBox)
 
-        if active.thread.turns.isEmpty {
-            GTK.append(threadBox, GTK.markupLabel(Self.emptyStateMarkup(environment: environment)))
-        }
+        // The history list replaces the thread rather than covering it: there is one
+        // content area, and a list the reader cannot scroll is not a list. While it is
+        // up the live thread keeps saving — `onChange` re-renders whatever view is on,
+        // and the rows are rebuilt from the archive on every entry, so a detached
+        // run's updates are there the next time the list opens.
+        if showsHistory {
+            renderHistory()
+        } else {
+            if active.thread.turns.isEmpty {
+                GTK.append(threadBox, GTK.markupLabel(Self.emptyStateMarkup(environment: environment)))
+            }
 
-        for turn in active.thread.turns {
-            GTK.append(threadBox, turnView(turn))
+            for turn in active.thread.turns {
+                GTK.append(threadBox, turnView(turn))
+            }
         }
 
         gtk_label_set_markup(vv_label(statusLabel),
-                             active.isRunning
-                                ? "<span size=\"small\">Researching… press Stop to cancel</span>" : "")
+                             showsHistory
+                                ? "<span size=\"small\">Escape goes back to the thread</span>"
+                                : (active.isRunning
+                                   ? "<span size=\"small\">Researching… press Stop to cancel</span>" : ""))
         gtk_button_set_label(vv_button(sendButton), active.isRunning ? "Stop" : "Ask")
 
-        if follow {
+        if follow, !showsHistory {
             // One idle hop later, after the new children have been laid out and the
             // adjustment's upper bound reflects them.
             let scroller = threadScroller
             GTK.onMainLoop { GTK.scrollToBottom(scroller) }
+        }
+    }
+
+    /// The saved threads, newest first, one row each: title, turn count, age, open,
+    /// delete. Built from the archive on entry (see `render`), so a thread a detached
+    /// run finished a minute ago appears with its final turn count.
+    private func renderHistory() {
+        let threads = environment.archive.library.threads
+        guard !threads.isEmpty else {
+            GTK.append(threadBox, GTK.markupLabel(
+                "<span size=\"small\">No saved threads yet. Ask something.</span>"))
+            return
+        }
+        for thread in threads {
+            let row = GTK.horizontalBox(spacing: 8)
+            let turns = "\(thread.turns.count) turn\(thread.turns.count == 1 ? "" : "s")"
+            let label = GTK.markupLabel(
+                "\(GTK.escape(thread.title))\n"
+                + "<span size=\"small\" alpha=\"60%\">\(turns) · "
+                + GTK.escape(Formatting.relativeDate(thread.updatedAt)) + "</span>")
+            gtk_widget_set_hexpand(label, 1)
+            gtk_label_set_xalign(vv_label(label), 0)
+            GTK.append(row, GTK.button(content: label) { [weak self] in
+                guard let self else { return }
+                self.openThread(thread)
+            })
+            let id = thread.id
+            GTK.append(row, GTK.button("✕") { [weak self] in
+                self?.deleteThread(id: id)
+            })
+            GTK.append(threadBox, row)
+        }
+    }
+
+    /// Opens a saved thread. A session already in the map is resumed rather than
+    /// rebuilt — it may be a detached run still writing that thread, and a second
+    /// session over one thread is exactly what the map exists to avoid.
+    private func openThread(_ thread: ResearchThread) {
+        showsHistory = false
+        if let existing = sessions[thread.id] {
+            activate(existing)
+        } else {
+            activate(makeSession(thread: thread))
+        }
+    }
+
+    /// Removes a thread from the archive, and with it the session working on it:
+    /// the archive's tombstone keeps the session's next save from resurrecting what
+    /// the reader just removed, and `discard` stops a detached run outright.
+    private func deleteThread(id: UUID) {
+        environment.archive.delete(id: id)
+        sessions[id]?.discard()
+        sessions.removeValue(forKey: id)
+        if active.thread.id == id {
+            activate(makeSession(thread: ResearchThread()))
+            showsHistory = true
+        } else {
+            render()
         }
     }
 
