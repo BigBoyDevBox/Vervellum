@@ -1792,8 +1792,19 @@ final class ResearchRunner: ResearchRunning {
                     system: ResearchPrompts.assess, payload: assessContext.payload, label: "Assess")
             }
             assessment = try AssessmentParser.parse(assessObject, sourceCount: sourceCount)
-        } catch let error as ResearchError where error != ResearchError.cancelled && !Task.isCancelled {
-            trace.warn("Assessment unavailable: \(error.message)")
+        } catch {
+            // Every error that is not a Stop, matching the revision stage's rule. The
+            // narrow `ResearchError` clause this replaced did not keep the promise in
+            // the type's own documentation: `ModelChain` deliberately rethrows anything
+            // that is not a `ResearchError`, and such an error would have propagated out
+            // of this fails-soft stage to fail a turn whose answer had already streamed,
+            // been read and been validated. `safeLabel`, not the error's own description:
+            // an unknown error can carry a URL with a query string or a path in it.
+            let stopped = Task.isCancelled
+                || error is CancellationError
+                || (error as? ResearchError) == ResearchError.cancelled
+            guard !stopped else { throw error }
+            trace.warn("Assessment unavailable: \(ResearchError.safeLabel(for: error))")
             return nil
         }
         trace.log("Assessment: \(assessment.findings.count) findings in "
