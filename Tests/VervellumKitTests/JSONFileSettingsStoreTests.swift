@@ -40,6 +40,7 @@ final class JSONFileSettingsStoreTests: XCTestCase {
         for edited in ["{ unfinished", "[]"] {
             try Data(edited.utf8).write(to: file)
             running.setBool(true, for: "shortcutInstalled")
+            XCTAssertEqual(running.bool(for: "shortcutInstalled"), true)
             XCTAssertEqual(try Data(contentsOf: file), Data(edited.utf8))
         }
     }

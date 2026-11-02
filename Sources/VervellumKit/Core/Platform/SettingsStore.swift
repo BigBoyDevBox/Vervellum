@@ -71,18 +71,18 @@ final class JSONFileSettingsStore: SettingsStore {
 
     private func write(_ value: Any?, _ key: String) {
         // Linux users edit this file directly; preserve unrelated edits between writes.
-        if FileManager.default.fileExists(atPath: url.path) {
-            guard let data = try? Data(contentsOf: url),
-                  let current = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-                FileHandle.standardError.write(Data(
-                    "vervellum warning: settings are unreadable; no changes were saved\n".utf8))
-                return
-            }
-            values = current
-        } else {
-            values = [:]
-        }
+        let data = try? Data(contentsOf: url)
+        let current = data.flatMap { (try? JSONSerialization.jsonObject(with: $0)) as? [String: Any] }
+        let exists = FileManager.default.fileExists(atPath: url.path)
+        if let current { values = current } else if !exists { values = [:] }
         if let value { values[key] = value } else { values.removeValue(forKey: key) }
+
+        // Keep in-session changes usable even when persistence must preserve a damaged file.
+        guard current != nil || !exists else {
+            FileHandle.standardError.write(Data(
+                "vervellum warning: settings are unreadable; no changes were saved\n".utf8))
+            return
+        }
         flush()
     }
 
