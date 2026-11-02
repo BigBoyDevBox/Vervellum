@@ -52,8 +52,14 @@ enum HTMLTextExtractor {
     static func text(from html: String,
                      limit: Int = maxCharacters,
                      minimum: Int = minimumUsefulCharacters) -> String {
-        var working = removeComments(in: html)
-        working = removeElements(Self.neverProse, in: working)
+        // Never-prose elements go first: inside `<script>`/`<style>` the tokenizer
+        // is in raw-text state, so a `<!--` there is *text*, and stripping comments
+        // before the bodies are gone let the comment regex eat a `</script>` and turn
+        // a closed script into a runaway that cut the rest of the page. Comments go
+        // before `dropUnclosed` for the mirror reason: a `<script` written inside a
+        // comment must not be seen as an opener by anything.
+        var working = removeElements(Self.neverProse, in: html)
+        working = removeComments(in: working)
         working = dropUnclosed(Self.rawTextElements, in: working)
         if let article = article(in: working) {
             working = article
@@ -90,35 +96,46 @@ enum HTMLTextExtractor {
     private static let chromeElements = ["nav", "header", "footer", "aside"]
 
     private static func removeComments(in html: String) -> String {
-        var working = html
-        if let regex = try? NSRegularExpression(
-            pattern: "<!--.*?-->", options: [.dotMatchesLineSeparators]) {
-            working = regex.stringByReplacingMatches(
-                in: working, range: NSRange(working.startIndex..., in: working), withTemplate: " ")
-        }
-        if let start = working.range(of: "<!--") {
-            working = String(working[..<start.lowerBound])
-        }
-        return working
+        // Pairs are removed. An unclosed `<!--` is replaced with a space rather
+        // than left standing or truncated at: `stripTags` treats `<` as a tag
+        // start, so a stray opener left in would swallow everything up to the next
+        // `>` on the page — the truncation this pass stopped doing, reached by
+        // another route — and cutting the document at it loses the rest outright.
+        // A leaked fragment of comment text is the safer failure for extraction.
+        guard let regex = try? NSRegularExpression(
+            pattern: "<!--.*?-->", options: [.dotMatchesLineSeparators]) else { return html }
+        let paired = regex.stringByReplacingMatches(
+            in: html, range: NSRange(html.startIndex..., in: html), withTemplate: " ")
+        return paired.replacingOccurrences(of: "<!--", with: " ")
     }
 
     /// Cuts an unclosed raw-text element to the end of the document.
     ///
     /// Closed elements are already gone. What remains of `<script` or `<style` has no
     /// closer, and a browser would not show anything after the opener either.
+    ///
+    /// Every opener is examined, not only the first: a document with one closed and
+    /// one runaway script would otherwise keep the runaway's body.
     private static func dropUnclosed(_ names: [String], in html: String) -> String {
         var working = html
         for name in names {
-            guard let start = openingTagRange(name, in: working) else { continue }
-            if hasCloser(name, after: start.lowerBound, in: working) { continue }
-            working = String(working[..<start.lowerBound])
+            var search = working.startIndex
+            while let start = openingTagRange(name, in: working, from: search) {
+                if hasCloser(name, after: start.lowerBound, in: working) {
+                    search = working.index(after: start.lowerBound)
+                    continue
+                }
+                working = String(working[..<start.lowerBound])
+                break
+            }
         }
         return working
     }
 
-    private static func openingTagRange(_ name: String, in html: String) -> Range<String.Index>? {
+    private static func openingTagRange(_ name: String, in html: String,
+                                        from searchStart: String.Index? = nil) -> Range<String.Index>? {
         let needle = "<" + name
-        var search = html.startIndex
+        var search = searchStart ?? html.startIndex
         while search < html.endIndex,
               let found = html.range(of: needle, options: [.caseInsensitive], range: search..<html.endIndex) {
             let after = found.upperBound
