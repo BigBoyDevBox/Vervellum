@@ -98,8 +98,13 @@ final class ThreadStore: ObservableObject {
     /// about the folder of screenshots that was also still there — and broken permissions
     /// on the container above them is one cause that fails both at once. A reader who
     /// fixes the file and sees the warning clear would never learn the images survived.
+    ///
+    /// The unreadable-document failure joins them: it is the same sentence shape, the
+    /// same Settings line, and a different problem from erasure — nothing is being
+    /// deleted, and nothing will be written until the file can be read.
     var eraseFailure: String? {
-        let failures = [archive.eraseFailure, attachmentEraseFailure].compactMap { $0 }
+        let failures = [archive.eraseFailure, archive.readFailure, attachmentEraseFailure]
+            .compactMap { $0 }
         return failures.isEmpty ? nil : failures.joined(separator: " ")
     }
 
