@@ -117,8 +117,8 @@ struct TurnView: View, Equatable {
 
     @ViewBuilder
     private var draftDisclosure: some View {
-        if DraftComparison.isOffered(draft: turn.draftAnswer, answer: turn.answer),
-           let draft = turn.draftAnswer {
+        if let draft = turn.draftAnswer,
+           DraftComparison.isOffered(draft: draft, answer: turn.answer) {
             Button {
                 showsDraft.toggle()
             } label: {

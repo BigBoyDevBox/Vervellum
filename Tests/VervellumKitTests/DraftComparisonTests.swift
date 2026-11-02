@@ -1,11 +1,13 @@
 import XCTest
 #if canImport(VervellumKit)
+// Linux: the portable code is its own SwiftPM module.
 @testable import VervellumKit
 #else
+// macOS: it is compiled straight into the app target, so there is no separate module.
 @testable import Vervellum
 #endif
 
-final class FormattingTests: XCTestCase {
+final class DraftComparisonTests: XCTestCase {
 
     func testADifferentDraftIsOfferedForComparison() {
         XCTAssertTrue(DraftComparison.isOffered(draft: "First [1].", answer: "Second [1]."))

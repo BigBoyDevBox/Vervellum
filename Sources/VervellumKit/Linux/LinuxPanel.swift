@@ -633,6 +633,11 @@ final class LinuxPanel {
                     self.render()
                 }
                 gtk_widget_set_halign(toggle, GTK_ALIGN_START)
+                // The same explanation the macOS disclosure carries as an
+                // accessibility hint: without it the button is a label that
+                // expands something, and a tooltip is where GTK readers look.
+                gtk_widget_set_tooltip_text(toggle,
+                    "The findings grade this draft, not the answer above")
                 GTK.append(box, toggle)
                 if open {
                     let shown = GTK.markupLabel(PangoMarkup.answer(draft, sources: turn.sources))
