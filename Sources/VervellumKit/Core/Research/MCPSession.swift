@@ -110,7 +110,9 @@ final class MCPSession {
             throw ResearchError("The \(subject) rejected \(method)\(suffix). "
                                 + "Check its key, plan access and quota.")
         }
-        guard (body["id"] as? Int) == id, let result = body["result"] as? [String: Any] else {
+        guard HTTPTransport.isJSONRPCID(body["id"], equalTo: id),
+              let result = body["result"] as? [String: Any]
+        else {
             throw ResearchError("The \(subject) returned an invalid response to \(method).")
         }
         return result
