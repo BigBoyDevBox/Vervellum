@@ -65,6 +65,9 @@ final class LinuxPanel {
     /// Set when a turn is appended, so the next render scrolls to it even if the reader
     /// had scrolled up: a question just asked is always the thing to look at.
     private var scrollToNewest = false
+    /// Turns whose first draft is open. The window rebuilds from scratch, so this
+    /// cannot live on the widget.
+    private var expandedDrafts: Set<UUID> = []
 
     init(application: UnsafeMutablePointer<GtkApplication>,
          environment: LinuxEnvironment = .shared) {
@@ -617,6 +620,26 @@ final class LinuxPanel {
             let answer = GTK.markupLabel(PangoMarkup.answer(turn.answer, sources: turn.sources))
             GTK.onLinkActivated(answer, Self.openLink)
             GTK.append(box, answer)
+            if DraftComparison.isOffered(draft: turn.draftAnswer, answer: turn.answer),
+               let draft = turn.draftAnswer {
+                let open = expandedDrafts.contains(turn.id)
+                let toggle = GTK.button(open ? DraftComparison.hideLabel : DraftComparison.showLabel) { [weak self] in
+                    guard let self else { return }
+                    if self.expandedDrafts.contains(turn.id) {
+                        self.expandedDrafts.remove(turn.id)
+                    } else {
+                        self.expandedDrafts.insert(turn.id)
+                    }
+                    self.render()
+                }
+                gtk_widget_set_halign(toggle, GTK_ALIGN_START)
+                GTK.append(box, toggle)
+                if open {
+                    let shown = GTK.markupLabel(PangoMarkup.answer(draft, sources: turn.sources))
+                    GTK.onLinkActivated(shown, Self.openLink)
+                    GTK.append(box, shown)
+                }
+            }
         }
         if let findings = PangoMarkup.findings(turn.findings) {
             GTK.append(box, GTK.markupLabel(findings))
