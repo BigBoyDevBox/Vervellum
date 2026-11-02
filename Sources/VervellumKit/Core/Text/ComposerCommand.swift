@@ -377,15 +377,50 @@ enum ComposerCommand: Equatable {
     /// flat list they read as four unrelated commands, which is exactly how they read in
     /// the panel before there was a selector — and the thing worth saying about them is
     /// the relationship between them, which no per-row summary can carry.
-    static var helpText: String {
+    static var helpText: String { helpText(legend: .macOS) }
+
+    /// `helpText` for a specific front end.
+    ///
+    /// One built-in screen cannot truthfully name keys the platform does not have. macOS
+    /// routes Command-modified keys through the panel; GTK has no in-app global
+    /// shortcut at all, no history or settings command to bind one to, and different
+    /// editing keys. A legend is a value rather than a second copy of the text so the
+    /// levels, the command rows and every other sentence exist once.
+    static func helpText(legend: KeyLegend) -> String {
         let levelWords = Set(ResearchLevel.ordered.map(\.command))
         let levels = ResearchLevel.ordered.map { level in
             "- `/\(level.command)` **\(level.displayName)** — \(level.summary)"
         }.joined(separator: "\n")
         let rows = catalogue
-            .filter { !levelWords.contains($0.name) }
+            .filter { !levelWords.contains($0.name) && !legend.hiddenCommands.contains($0.name) }
             .map { "- `/\($0.name)` — \($0.summary)" }
             .joined(separator: "\n")
+
+        var keys = [
+            "- `\(legend.submitKey)` — ask, or a new line if Settings says so",
+            "- `\(legend.newlineKeys)` — a new line, whichever way Return is configured",
+            "- `\(legend.alwaysSubmitKey)` — ask, whichever way Return is configured",
+            "- `Esc` — clear the draft, then close the \(legend.closeNoun)",
+        ]
+        if legend.hasRecall {
+            keys.append("- `↑` / `↓` — earlier questions in this thread")
+        }
+        if let newThread = legend.newThreadKey {
+            keys.append("- `\(newThread)` — new thread")
+        }
+        if let history = legend.historyKey {
+            keys.append("- `\(history)` — earlier threads")
+        }
+        if let stop = legend.stopKey {
+            keys.append("- `\(stop)` — stop the running research")
+        }
+        if let settings = legend.settingsKey {
+            keys.append("- `\(settings)` — Settings")
+        }
+        if let close = legend.windowCloseKey {
+            keys.append("- `\(close)` — close the \(legend.closeNoun)")
+        }
+
         return """
             ## How hard to look
 
@@ -408,20 +443,67 @@ enum ComposerCommand: Equatable {
 
             `/model` lists the configured providers and marks the active one; \
             `/model <name>` switches to one by its name or its model identifier. \
-            Add and remove providers in Settings ▸ Providers.
+            \(legend.providersGuidance)
 
             ## Keys
 
-            - `Return` — ask, or a new line if Settings says so
-            - `Shift-Return` / `⌥Return` — a new line, whichever way Return is configured
-            - `⌘Return` — ask, whichever way Return is configured
-            - `Esc` — clear the draft, then close the panel
-            - `↑` / `↓` — earlier questions in this thread
-            - `⌘N` — new thread
-            - `⌘Y` — earlier threads
-            - `⌘.` — stop the running research
-            - `⌘,` — Settings
-            - `⌘W` — close the panel
+            \(keys.joined(separator: "\n"))
             """
+    }
+
+    /// The parts of `/help` that depend on what the front end can actually do.
+    ///
+    /// Values rather than a platform check inside the text: both front ends print the
+    /// same screen, and the difference is a fact about their key handling rather than
+    /// about the pipeline. A new platform adds a legend instead of a second copy.
+    struct KeyLegend: Equatable {
+        /// The key that asks, when the preference says so.
+        var submitKey: String
+        /// The modified Returns that always break a line.
+        var newlineKeys: String
+        /// The key that always asks, whichever way Return is configured.
+        var alwaysSubmitKey: String
+        /// What Escape ultimately closes ("panel" / "window").
+        var closeNoun: String
+        /// Whether ↑/↓ recall earlier questions in this thread.
+        var hasRecall: Bool
+        /// Panel commands this front end implements, as key labels.
+        var newThreadKey: String?
+        var historyKey: String?
+        var stopKey: String?
+        var settingsKey: String?
+        var windowCloseKey: String?
+        /// Command names this front end does not implement, omitted from the list.
+        var hiddenCommands: Set<String>
+        /// Where a reader adds or removes providers.
+        var providersGuidance: String
+
+        static let macOS = KeyLegend(
+            submitKey: "Return",
+            newlineKeys: "Shift-Return / ⌥Return",
+            alwaysSubmitKey: "⌘Return",
+            closeNoun: "panel",
+            hasRecall: true,
+            newThreadKey: "⌘N",
+            historyKey: "⌘Y",
+            stopKey: "⌘.",
+            settingsKey: "⌘,",
+            windowCloseKey: "⌘W",
+            hiddenCommands: [],
+            providersGuidance: "Add and remove providers in Settings ▸ Providers.")
+
+        static let linux = KeyLegend(
+            submitKey: "Return",
+            newlineKeys: "Shift-Return / Alt-Return",
+            alwaysSubmitKey: "Ctrl-Return",
+            closeNoun: "window",
+            hasRecall: false,
+            newThreadKey: nil,
+            historyKey: nil,
+            stopKey: nil,
+            settingsKey: nil,
+            windowCloseKey: nil,
+            hiddenCommands: ["history", "settings", "copy"],
+            providersGuidance: "Edit ~/.config/vervellum/settings.json to add or remove providers.")
     }
 }

@@ -350,7 +350,7 @@ final class LinuxPanel {
             newThread()
         case .showHelp:
             GTK.setText(composer, "")
-            appendNotice(ComposerCommand.helpText)
+            appendNotice(ComposerCommand.helpText(legend: .linux))
         case .openSettings, .openHistory:
             GTK.setText(composer, "")
             appendNotice("That command is macOS-only for now. Settings live in "
