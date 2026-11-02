@@ -523,7 +523,15 @@ final class ResearchRunner: ResearchRunning {
                     // fallback code already says in as many words that a non-`ResearchError`
                     // can reach it. Only a Stop propagates.
                     let reason = ResearchError.disclosedSearchFailure(error)
-                    trace.warn("Search engine \(profile.displayName) is not usable: \(reason)")
+                    // The type name beside the safe sentence: the trace is Vervellum's
+                    // own channel, and "URLError" versus something else is the one
+                    // diagnostic the fixed sentence cannot carry. It is `safeLabel`
+                    // — a type name, never a foreign description — so the rule that
+                    // provider text stays out of the log still holds.
+                    let detail = error is ResearchError
+                        ? "" : " (\(ResearchError.safeLabel(for: error)))"
+                    trace.warn("Search engine \(profile.displayName) is not usable: "
+                               + "\(reason)\(detail)")
                 }
                 try Task.checkCancellation()
             }
