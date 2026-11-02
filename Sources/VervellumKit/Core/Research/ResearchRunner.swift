@@ -522,7 +522,7 @@ final class ResearchRunner: ResearchRunning {
                     // transport is entitled to throw `URLError` and the chain's own
                     // fallback code already says in as many words that a non-`ResearchError`
                     // can reach it. Only a Stop propagates.
-                    let reason = (error as? ResearchError)?.message ?? String(describing: error)
+                    let reason = ResearchError.disclosedSearchFailure(error)
                     trace.warn("Search engine \(profile.displayName) is not usable: \(reason)")
                 }
                 try Task.checkCancellation()
@@ -1387,7 +1387,9 @@ final class ResearchRunner: ResearchRunning {
                 // may have spent a dozen billed requests before reaching here.
                 // Narrowed to `ResearchError` this caught none of the failures the
                 // transport can raise on its own.
-                let reason = (error as? ResearchError)?.message ?? String(describing: error)
+                // Not `String(describing:)`: this string is shown when every
+                // search fails, and a URLError's description includes the URL.
+                let reason = ResearchError.disclosedSearchFailure(error)
                 return Outcome(step: step, engine: engineIndex, result: nil,
                                fruitful: false, failure: reason)
             }
