@@ -432,6 +432,10 @@ final class LinuxPanel {
                 self.environment.archive.flush()
             }
             guard session === self.active else { return }
+            // Between snapshots the window would not repaint at all — a thirty-second
+            // fetch looks frozen. The ticker repaints the status line each second,
+            // which is the clock macOS's trail runs on (`TimelineView`).
+            if session.isRunning { self.tickStatusLine() }
             self.render()
         }
         // `onQueueReturned` is intentionally unwired: the composer refuses questions
@@ -561,9 +565,7 @@ final class LinuxPanel {
             GTK.append(threadBox, turnView(turn))
         }
 
-        gtk_label_set_markup(vv_label(statusLabel),
-                             active.isRunning
-                                ? "<span size=\"small\">Researching… press Stop to cancel</span>" : "")
+        gtk_label_set_markup(vv_label(statusLabel), runningStatusMarkup() ?? "")
         gtk_button_set_label(vv_button(sendButton), active.isRunning ? "Stop" : "Ask")
 
         if follow {
@@ -572,6 +574,30 @@ final class LinuxPanel {
             let scroller = threadScroller
             GTK.onMainLoop { GTK.scrollToBottom(scroller) }
         }
+    }
+
+    /// The running status line: progress from the live turn, a clock beside it, and
+    /// the way out. Shared by `render` and the ticker so the two can never disagree
+    /// about what the run is doing.
+    private func runningStatusMarkup() -> String? {
+        guard active.isRunning,
+              let running = active.thread.turns.last(where: { !$0.stage.isTerminal })
+        else { return nil }
+        let elapsed = Formatting.duration(Date().timeIntervalSince(running.askedAt))
+        return "<span size=\"small\">\(GTK.escape(running.runningProgressLabel))… "
+            + "<span alpha=\"60%\">\(elapsed)</span> · Stop cancels</span>"
+    }
+
+    /// Re-arms itself every second while the session on screen is running, repainting
+    /// the status line so the clock ticks and the stage line moves between snapshots.
+    /// A one-shot that re-arms rather than a repeating source: each tick re-decides
+    /// whether another is wanted, so a run that ends stops the chain by itself.
+    private func tickStatusLine() {
+        guard active.isRunning else { return }
+        if let markup = runningStatusMarkup() {
+            gtk_label_set_markup(vv_label(statusLabel), markup)
+        }
+        GTK.after(1) { [weak self] in self?.tickStatusLine() }
     }
 
     private func turnView(_ turn: ResearchTurn) -> GTK.Widget {
