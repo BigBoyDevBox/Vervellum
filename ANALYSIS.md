@@ -95,18 +95,6 @@ about the query. A second press is needed to close the list. Suggested fix: when
 Escape leaves the list. Not implemented here because another PR already edits
 `PanelRootView.swift`.
 
-### The Linux composer cannot queue a follow-up while a run is in flight
-
-missing features / usability — nice-to-have
-
-The shared `ResearchSession` supports a three-question queue and the macOS panel exposes
-it, but `LinuxPanel.wireComposer` swallows Return mid-run
-(`Sources/VervellumKit/Linux/LinuxPanel.swift:308`) and `submit()` declines outright
-(`:334`). The draft simply sits there with no feedback, and the comment claims parity
-with macOS that the code does not provide. Suggested fix: allow `active.ask` while
-running, render queued chips like macOS, and wire `onQueueReturned` to restore
-questions after a Stop.
-
 ### `/model <name>` argument completion is absent
 
 missing features — nice-to-have
@@ -118,14 +106,15 @@ is where those names live, so this is discoverability, not capability. Suggested
 extend the completion contract with an argument-aware variant for commands that take one,
 driven by `ProviderSettings.modelProfiles`.
 
-### History search scans every question and answer on each keystroke
+### History search scans every turn on each keystroke
 
 performance — nice-to-have
 
-`ThreadLibrary.search(_:)` (`Sources/VervellumKit/Core/Store/ThreadLibrary.swift:118-126`)
-walks every turn's question *and* full answer, and `HistoryView`
+`ThreadLibrary.search(_:)` (`Sources/VervellumKit/Core/Store/ThreadLibrary.swift`)
+walks every turn's question, answer, limitations, follow-ups, findings and source
+titles/urls (PR #144 widened the walk to those fields), and `HistoryView`
 (`Vervellum/Views/HistoryView.swift:25`) runs it on every keystroke with no debounce.
-A47 made the walk allocation-free, but with the limit at 2000 threads the scan itself is
+The walk is allocation-free, but with the limit at 2000 threads the scan itself is
 proportional to stored text. Suggested fix: match questions first and fall back to
 answers only when the question set is small; debounce the query by ~150 ms.
 
@@ -158,6 +147,133 @@ per-token writes”) even though the current save path follows each coalesced sn
 Desktop-only visual behaviour (Liquid Glass fallback, Reduce Transparency, full-screen
 placement, IME, scrolling smoothness) needs a real macOS session and is not assessed
 here.
+
+## Review findings — 2026-11-02 (Grok)
+
+A second fresh read of `main` at `0311b35`, run in a Linux desktop environment with no
+macOS GUI session. Every blocking and important finding from this pass is implemented
+in open PRs and is therefore absent here: foreign search error text (#135), literal
+URLs in code discarding revisions (#138), article headers stripped from page text
+(#139, plus the comment-marker fix), the stored first draft never rendered (#142),
+history search breadth (#144), hover-only history delete (#146), the agent loop
+abandoning its page budget at the search cap (#148), bidi/NUL characters surviving to
+display and evidence (#150), Linux `/copy` (#151), Linux follow-up links (#152), the
+Linux follow-up queue (#153), the Linux history list (#154), the frozen status line
+during runs (#155), and the per-snapshot full rebuild (#156). Everything below is a
+nice-to-have that no open PR implements.
+
+### Linux settings changes need a restart to apply
+
+general issues — nice-to-have
+
+`settings.json` is read once at launch (`Sources/VervellumKit/Linux/LinuxEnvironment.swift:141`),
+and Linux has no Settings window, so editing the text scale, the endpoint, or a model
+name while the window is open does nothing until restart. Suggested fix: re-read the
+file when the window gains focus, applying only the keys that parse; a full settings
+form is A30's settings-window half and does not need to land first.
+
+### The four level buttons and their separators cannot wrap
+
+visual issues — nice-to-have
+
+`LinuxPanel.buildLevelSelector` puts four level buttons plus two separators in one
+non-wrapping row inside a 560 px window (`Sources/VervellumKit/Linux/LinuxPanel.swift:176`).
+At 1.4× text scale or a narrowed window the labels clip. Suggested fix: a `GtkFlowBox`
+wraps them; keep the separators as their own children so the grouping survives.
+
+### Linux secondary text may miss contrast on dark Adwaita
+
+visual issues — nice-to-have
+
+`PangoMarkup.Colour.secondary` is `#7a7a7a` — one fixed compromise for both Adwaita
+themes (`Sources/VervellumKit/Linux/PangoMarkup.swift:22`), likely under 4.5:1 on the
+dark one. Not measured in the reviewing environment. Suggested fix: derive it from
+the theme's foreground colour with alpha (`@fg_color` / `color-mix()`) rather than a
+fixed hex, and verify with a contrast meter on both themes.
+
+### The open-in-browser glyph is invisible to keyboard focus
+
+visual issues — nice-to-have
+
+`SourcesView`'s open-in-browser glyph is opacity 0 until hover
+(`Vervellum/Views/SourcesView.swift:188`), so a keyboard user gets no affordance that
+the row is a button at all. Suggested fix: show the glyph when the row is focused as
+well as hovered (a `@FocusState` on the row), keeping hover-only for the pointer.
+
+### The summary/page distinction is hover-only and unread by assistive tech
+
+usability — nice-to-have
+
+The snippet, which says whether a row is a search summary or a read page, appears only
+on hover and is absent from the accessibility label (`Vervellum/Views/SourcesView.swift:166`).
+The page-read badge is always visible; the summary side is not. Suggested fix: put the
+snippet in the accessibility value, and show a permanent short tag ("summary" /
+"page read") beside the number.
+
+### Relative dates in the history list do not tick
+
+usability — nice-to-have
+
+`HistoryView`'s rows compute the relative date once per render
+(`Vervellum/Views/HistoryView.swift:154`), so "2m ago" stays "2m ago" while the list
+is open. Low value on its own; if A28's keyboard pass touches these rows anyway, wrap
+the date in a `TimelineView(.periodic(by: 60))` at the same time.
+
+### The macOS empty-state hint ignores `submitOnReturn`
+
+usability — nice-to-have
+
+`EmptyStateView` always says Return asks (`Vervellum/Views/EmptyStateView.swift:29`),
+which matches the default but not the flipped preference; the Linux empty state
+already follows it. Suggested fix: read the preference and swap the hint the way the
+Linux panel does.
+
+### Linux does not follow the theme presets macOS has
+
+aesthetics and theming — nice-to-have
+
+macOS ships named palette presets (`Sources/VervellumKit/Core/Platform/ThemePresets.swift`);
+Linux is one hand-written CSS string that ignores them
+(`LinuxPanel.stylesheet`), so the window looks like a stock GTK dialog beside the
+macOS panel. Suggested fix: map the shared palette into the stylesheet's colour
+variables when the preference is set, falling back to the current sheet otherwise.
+
+### The selected level's only reliable signal is a bullet
+
+aesthetics — nice-to-have
+
+The Linux level selector marks its selection with a bullet plus bold plus a CSS class
+(`Sources/VervellumKit/Linux/LinuxPanel.swift:213`); on a theme that styles the class
+as nothing, the bullet is the whole signal and it is easy to miss. Suggested fix:
+also set a checkmark glyph or a `GTK_STATE_FLAG_CHECKED`-equivalent style so the
+selection survives a theme that ignores the class.
+
+### A revision "what changed" view, sentence by sentence
+
+novel ideas — nice-to-have
+
+With the draft disclosure landed (#142), the next step past a second wall of text is a
+toggle showing only the sentences the revision rewrote. Suggested fix: a line-based
+diff between `draftAnswer` and the answer rendered through the existing markdown views;
+no model call.
+
+### "Ask about this claim" from a findings row
+
+novel ideas — nice-to-have
+
+A contradicted or mixed finding (`Vervellum/Views/FindingsView.swift:48`) could offer a
+one-click action that seeds the composer with the claim and its source numbers, the way
+follow-up links do. No extra model call until the user sends it. Suggested fix: reuse
+the seed-composer path the follow-ups and selection capture already use.
+
+### Option-click a citation to copy it as a footnote
+
+novel ideas — nice-to-have
+
+For readers pasting answers into notes, Option-click on a `[n]` chip could copy the
+source as a markdown footnote (`[1]: url title`) instead of opening it. Suggested fix:
+an alternative gesture on the existing chip with a short confirmation notice; pairs
+with A64's citation-click reveal.
 
 ## Historical analysis, before PR #69
 
@@ -548,7 +664,7 @@ and bursty streams for bounded queues, responsive Stop, stable selection, and ex
 final text. Keep GLib/main-queue dispatch in platform layers, never MainActor in
 Core. Pair with A19.
 
-**Fable status:** Not duplicated by Fable. Still open here beyond #24/#51: cache parsed blocks keyed by block text and re-parse only the streaming block (P2 — `MarkdownBody` parses the whole answer per body evaluation), and compute `TurnView.validation` once per answer change (P5). On Linux, reuse finished turns' widgets and rebuild only the running box (B44).
+**Fable status:** Not duplicated by Fable. Still open here beyond #24/#51: cache parsed blocks keyed by block text and re-parse only the streaming block (P2 — `MarkdownBody` parses the whole answer per body evaluation), and compute `TurnView.validation` once per answer change (P5). On Linux the rebuild half landed with PR #156 (the streaming answer label is retitled in place; a full rebuild still happens on every other change), so what remains is the macOS parse caching.
 
 ### A23 · P2/M — Preserve drafts and make commands keyboard-first
 
@@ -588,7 +704,7 @@ not another persistence backend.
 **Accept:** actual GTK key-event tests with IME, Shift-Return, keypad Enter, drafts,
 and a live run. Do not consume unrelated editing keys. Coordinate setup/history with A30.
 
-**Fable status:** Covered in part by #59 (Ctrl-Return; Return never cancels; "Stopped"; Try again; hint follows `submitOnReturn`) and #66 (trail toggle). Remaining: IME (`gtk_text_view_im_context_filter_keypress` before the key controller — B34), clickable follow-ups, clipboard, and a discoverable quit (`vervellum --quit`, a `[Desktop Action quit]`, README — B59).
+**Fable status:** Covered in part by #59 (Ctrl-Return; Return never cancels; "Stopped"; Try again; hint follows `submitOnReturn`) and #66 (trail toggle). Clickable follow-ups (PR #152) and `/copy` on the clipboard (PR #151) have since landed. Remaining: IME (`gtk_text_view_im_context_filter_keypress` before the key controller — B34) and a discoverable quit (`vervellum --quit`, a `[Desktop Action quit]`, README — B59).
 
 ### A25 · P2/M — Stable, inspectable evidence cards
 
@@ -657,6 +773,10 @@ Separate row actions, label contextual menus, add deletion undo/confirmation, fo
 history search on opening, and restore composer focus on exit. Add ↑/↓ result
 navigation, Return to open, and Delete with undo (earlier F8), without intercepting
 composer editing keys. Announce stage changes, not streamed tokens.
+
+**Status:** the hover-only Delete button is fixed (PR #146: always drawn, contained in
+the row's accessibility tree, labelled with the thread title). The keyboard navigation,
+undo, and announcement work above is still open.
 
 **Accept:** VoiceOver/Orca reading order, focus, source actions, errors, no-results
 states, and keyboard deletion without hover. Keep controls reachable at larger scale.
@@ -802,6 +922,10 @@ settings/secrets/history and exercise behavior, not just optimistic code comment
 Build a settings/setup window over existing stores: presets, masked keys, explicit
 Save, backend warnings, validation, and an optional connection check that discloses
 what leaves the machine. Add searchable history, reopen/delete, and thread export.
+
+**Status:** reopen/delete landed on Linux (PR #154: a History list over the archive,
+without search or export). The settings window, presets, and export are still open;
+see the Grok section below for the settings-file reload half of that.
 
 **Accept:** clean install without secret-tool, unavailable keyring, no search key,
 `/direct` discovery, and settings reload. No new persistence format. Build on A17/A18.
