@@ -176,7 +176,15 @@ final class SearXNGClient: SearchBackend {
         switch value {
         case let text as String: return text.trimmingCharacters(in: .whitespacesAndNewlines)
         case let number as Int: return String(number)
-        case let number as Double: return number == number.rounded() ? String(Int(number)) : String(number)
+        // `Int(number)` traps on an integral value outside Int's range, and a
+        // model-written argument is exactly where such a value comes from: the schema
+        // advertises strings, but the shared validator checks argument *names* only,
+        // so `"time_range": 1e308` reaches here. A trap takes the whole app down
+        // mid-turn. `Int(exactly:)` answers nil for those, for NaN and for infinity;
+        // everything else renders exactly as it did before.
+        case let number as Double:
+            guard let exact = Int(exactly: number) else { return String(number) }
+            return String(exact)
         case let flag as Bool: return flag ? "1" : "0"
         case let values as [Any]: return values.compactMap { queryValue($0) }.joined(separator: ",")
         default: return nil
