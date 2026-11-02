@@ -70,6 +70,11 @@ final class JSONFileSettingsStore: SettingsStore {
     func setBool(_ value: Bool?, for key: String) { write(value, key) }
 
     private func write(_ value: Any?, _ key: String) {
+        // Linux users edit this file directly; preserve unrelated edits between writes.
+        if let data = try? Data(contentsOf: url),
+           let current = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            values = current
+        }
         if let value { values[key] = value } else { values.removeValue(forKey: key) }
         flush()
     }
