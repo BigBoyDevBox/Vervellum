@@ -56,6 +56,69 @@ final class GitHubReleaseTests: XCTestCase {
         XCTAssertEqual(release.preferredAsset?.name, "Vervellum-1.4.0.dmg")
     }
 
+    /// A release can carry more than one archive of the same extension. The updater runs
+    /// on one machine, so the name that matches its platform and architecture has to
+    /// win; otherwise it picks whichever asset GitHub lists first and the reader gets a
+    /// download that cannot install.
+    func testPrefersThisMachinesArchitecture() throws {
+        let release = try decodeRelease(assetNames: [
+            "Vervellum-1.4.0-macos-arm64.zip",
+            "Vervellum-1.4.0-macos-x86_64.zip",
+        ])
+        #if arch(arm64)
+        XCTAssertEqual(release.preferredAsset?.name, "Vervellum-1.4.0-macos-arm64.zip")
+        #elseif arch(x86_64)
+        XCTAssertEqual(release.preferredAsset?.name, "Vervellum-1.4.0-macos-x86_64.zip")
+        #else
+        throw XCTSkip("No expectation for this architecture.")
+        #endif
+    }
+
+    func testPrefersThisMachinesPlatform() throws {
+        let release = try decodeRelease(assetNames: [
+            "Vervellum-1.4.0-macos-arm64.zip",
+            "Vervellum-1.4.0-linux-amd64.zip",
+        ])
+        #if os(macOS)
+        XCTAssertEqual(release.preferredAsset?.name, "Vervellum-1.4.0-macos-arm64.zip")
+        #elseif os(Linux)
+        XCTAssertEqual(release.preferredAsset?.name, "Vervellum-1.4.0-linux-amd64.zip")
+        #else
+        throw XCTSkip("No expectation for this operating system.")
+        #endif
+    }
+
+    /// A universal build is the fallback, not a tie-break winner: when an exact
+    /// architecture is available it is preferred, and only otherwise does universal beat
+    /// nothing.
+    func testUniversalIsTheFallbackNotTheDefault() throws {
+        let release = try decodeRelease(assetNames: [
+            "Vervellum-1.4.0-macos-x86_64.zip",
+            "Vervellum-1.4.0-macos-universal.zip",
+        ])
+        #if arch(arm64)
+        XCTAssertEqual(release.preferredAsset?.name, "Vervellum-1.4.0-macos-universal.zip")
+        #elseif arch(x86_64)
+        XCTAssertEqual(release.preferredAsset?.name, "Vervellum-1.4.0-macos-x86_64.zip")
+        #else
+        throw XCTSkip("No expectation for this architecture.")
+        #endif
+    }
+
+    private func decodeRelease(assetNames: [String]) throws -> GitHubRelease {
+        let assets = assetNames.map { name in
+            "{ \"name\": \"\(name)\", \"content_type\": \"application/octet-stream\", "
+                + "\"size\": 1, \"browser_download_url\": \"https://example.com/\(name)\" }"
+        }.joined(separator: ", ")
+        let document = Data("""
+            { "tag_name": "v1.4.0", "html_url": "https://example.com",
+              "prerelease": false, "draft": false, "assets": [\(assets)] }
+            """.utf8)
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        return try decoder.decode(GitHubRelease.self, from: document)
+    }
+
     func testReleaseNotesTruncates() throws {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
