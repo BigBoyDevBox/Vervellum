@@ -148,4 +148,33 @@ final class SearXNGClientTests: XCTestCase {
                                                  required: ["q"], properties: ["q"]),
                              "An invented argument would spend a request to get an error back")
     }
+
+    /// A present-but-blank required key passes `validate`, and `requestURL` drops blank
+    /// values — so without this check the instance answers an unfiltered request and its
+    /// generic results become numbered evidence. Nothing may reach the network.
+    func testABlankOrNonTextQueryIsRefusedBeforeAnyRequest() async throws {
+        let transport = StubTransport { _ in .unrouted }
+        let client = SearXNGClient(searchURL: try base(), apiKey: nil,
+                                   trace: ResearchTrace(sink: SilentLog()),
+                                   transport: transport)
+
+        for arguments in [["q": "   "], ["q": ""]] {
+            do {
+                try await client.search(arguments: arguments)
+                XCTFail("a blank query must not be sent")
+            } catch let error as ResearchError {
+                XCTAssertEqual(error.message,
+                               "The model wrote an empty search query. Try another model.")
+            }
+        }
+
+        do {
+            try await client.search(arguments: ["q": 7])
+            XCTFail("a non-text query must not be sent")
+        } catch let error as ResearchError {
+            XCTAssertEqual(error.message, "The search query was not text. Try another model.")
+        }
+
+        XCTAssertTrue(transport.calls.isEmpty, "no request may leave the machine")
+    }
 }

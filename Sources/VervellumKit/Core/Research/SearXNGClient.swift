@@ -113,6 +113,16 @@ final class SearXNGClient: SearchBackend {
         try validate(arguments,
                      required: Self.inputSchema["required"] as? [String] ?? ["q"],
                      properties: Self.propertyKeys)
+        // `validate` checks that the key exists, not that it holds a usable query. A
+        // blank `q` is dropped by `requestURL`, so the instance would answer an
+        // unfiltered request and its generic results would be numbered as evidence for
+        // this question. Kagi's client already refuses the same two shapes.
+        guard let query = arguments["q"] as? String else {
+            throw ResearchError("The search query was not text. Try another model.")
+        }
+        guard !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw ResearchError("The model wrote an empty search query. Try another model.")
+        }
         guard let url = Self.requestURL(base: searchURL, arguments: arguments) else {
             throw ResearchError("Vervellum could not build the SearXNG request URL. "
                                 + "Check the address in the provider settings.")
