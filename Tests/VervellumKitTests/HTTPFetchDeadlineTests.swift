@@ -9,6 +9,13 @@ import FoundationNetworking
 @testable import Vervellum
 #endif
 
+private enum HTTPStatus {
+    static let ok = 200
+    static let found = 302
+}
+
+private let rescueDelay: TimeInterval = 2
+
 final class HTTPFetchDeadlineTests: XCTestCase {
     func testDeadlineIncludesWaitingForHeaders() async throws {
         try await assertDeadline(path: "headers")
@@ -24,7 +31,7 @@ final class HTTPFetchDeadlineTests: XCTestCase {
         let transport = HTTPTransport(configuration: configuration)
         let request = HTTPTransport.getRequest(url: try XCTUnwrap(URL(string: "https://page.example/success")))
         let (response, data) = try await transport.fetch(request, limit: 1024, deadline: 2)
-        XCTAssertEqual(response.statusCode, 200)
+        XCTAssertEqual(response.statusCode, HTTPStatus.ok)
         XCTAssertEqual(String(data: data, encoding: .utf8), "partial")
     }
 
@@ -33,7 +40,9 @@ final class HTTPFetchDeadlineTests: XCTestCase {
         configuration.protocolClasses = [StalledPageProtocol.self]
         let transport = HTTPTransport(configuration: configuration)
         let request = HTTPTransport.getRequest(url: try XCTUnwrap(URL(string: "https://page.example/headers")))
-        let task = Task { try await transport.fetch(request, limit: 1024, deadline: 2) }
+        let started = ProcessInfo.processInfo.systemUptime
+        defer { XCTAssertLessThan(ProcessInfo.processInfo.systemUptime - started, rescueDelay / 2) }
+        let task = Task { try await transport.fetch(request, limit: 1024, deadline: rescueDelay) }
         task.cancel()
         do {
             _ = try await task.value
@@ -46,9 +55,9 @@ final class HTTPFetchDeadlineTests: XCTestCase {
     func testRedirectHopsShareThePageBudget() async {
         let transport = StubTransport { call in
             if call.url.path == "/start" {
-                return .page(status: 302, headers: ["Location": "/end"], text: "")
+                return .page(status: HTTPStatus.found, headers: ["Location": "/end"], text: "")
             }
-            return .page(status: 200, headers: [:], text: String(repeating: "Page text. ", count: 40))
+            return .page(status: HTTPStatus.ok, headers: [:], text: String(repeating: "Page text. ", count: 40))
         }
         let reader = DirectPageReader(trace: ResearchTrace(sink: SilentLog()), transport: transport)
         let pages = await reader.read([
@@ -71,6 +80,8 @@ final class HTTPFetchDeadlineTests: XCTestCase {
         let transport = HTTPTransport(configuration: configuration)
         let request = HTTPTransport.getRequest(url: try XCTUnwrap(URL(string: "https://page.example/" + path)))
         let budget: TimeInterval = 0.02
+        let started = ProcessInfo.processInfo.systemUptime
+        defer { XCTAssertLessThan(ProcessInfo.processInfo.systemUptime - started, rescueDelay / 2) }
         do {
             _ = try await transport.fetch(request, limit: 1024, deadline: budget)
             XCTFail("A stalled exchange must expire")
@@ -97,7 +108,7 @@ private final class StalledPageProtocol: URLProtocol {
         rescue = work
         lock.unlock()
         if request.url?.path != "/headers", let url = request.url,
-           let response = HTTPURLResponse(url: url, statusCode: 200,
+           let response = HTTPURLResponse(url: url, statusCode: HTTPStatus.ok,
                                           httpVersion: "HTTP/1.1", headerFields: nil) {
             client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
             client?.urlProtocol(self, didLoad: Data("partial".utf8))
@@ -106,7 +117,7 @@ private final class StalledPageProtocol: URLProtocol {
                 return
             }
         }
-        DispatchQueue.global().asyncAfter(deadline: .now() + 2, execute: work)
+        DispatchQueue.global().asyncAfter(deadline: .now() + rescueDelay, execute: work)
     }
 
     override func stopLoading() {
