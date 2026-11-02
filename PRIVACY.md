@@ -27,9 +27,12 @@ Vervellum makes network requests in exactly five cases, each with a fixed purpos
   you cancel is never re-sent.
 - **Search queries.** Model-written queries derived from your question and context go
   to the search provider selected when you asked — an MCP server, a SearXNG instance
-  queried directly, or the `kagi` command-line tool on this machine — and to no other
-  configured provider. They are shown to you in the panel's process trail before the
-  answer arrives. With **Kagi CLI** selected the query reaches Kagi through that tool,
+  queried directly, or the `kagi` command-line tool on this machine. At the **Deep
+  rounds** level every planned search is then put to *every* search provider you have
+  configured, selected first: two indexes that disagree are most of what the wider net
+  is for, and the level picker says so before you choose it. The other levels use the
+  selected provider alone. Queries are shown to you in the panel's process trail before
+  the answer arrives. With **Kagi CLI** selected the query reaches Kagi through that tool,
   under the credential you gave it with `kagi auth` rather than one held here, so the
   search is attributed to your Kagi account exactly as a search you typed there would
   be. Vervellum runs the program, and normally never sees the credential — unless you
