@@ -65,6 +65,8 @@ final class LinuxPanel {
     /// Set when a turn is appended, so the next render scrolls to it even if the reader
     /// had scrolled up: a question just asked is always the thing to look at.
     private var scrollToNewest = false
+    // Empty-state redraws must not repeatedly launch keyring processes.
+    private var cachedEmptyState: String?
 
     init(application: UnsafeMutablePointer<GtkApplication>,
          environment: LinuxEnvironment = .shared) {
@@ -128,6 +130,8 @@ final class LinuxPanel {
     }
 
     func show() {
+        cachedEmptyState = nil
+        if active.thread.turns.isEmpty { render() }
         gtk_window_present(vv_window(window))
         gtk_widget_grab_focus(composer)
     }
@@ -314,6 +318,7 @@ final class LinuxPanel {
     // MARK: Actions
 
     private func newThread() {
+        cachedEmptyState = nil
         // Detached, not cancelled: a run in flight on the old session keeps going —
         // the map holds it, and its finished thread is still saved to the archive.
         activate(makeSession(thread: ResearchThread()))
@@ -554,7 +559,9 @@ final class LinuxPanel {
         GTK.removeAllChildren(of: threadBox)
 
         if active.thread.turns.isEmpty {
-            GTK.append(threadBox, GTK.markupLabel(Self.emptyStateMarkup(environment: environment)))
+            let markup = cachedEmptyState ?? Self.emptyStateMarkup(environment: environment)
+            cachedEmptyState = markup
+            GTK.append(threadBox, GTK.markupLabel(markup))
         }
 
         for turn in active.thread.turns {

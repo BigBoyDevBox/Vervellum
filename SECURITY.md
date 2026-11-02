@@ -36,6 +36,12 @@ app that refused to start there would be broken for a large minority of users. T
 is created with `O_CREAT`-style restrictive permissions *before* the secret is written
 to it, so there is no window in which it is world-readable.
 
+Linux desktop tools (`secret-tool` and `gsettings`) have a two-second command
+budget and 64 KiB input/output caps. Timed-out children are killed; stderr is discarded
+and keys enter `secret-tool` through stdin, never arguments. These calls remain
+synchronous, so a stalled tool can still delay the interface until its budget expires.
+Empty-state redraws reuse their key-presence result until the panel is shown again.
+
 Provider requests use one transport that enforces three rules:
 
 - **Redirects are refused.** `URLSession` re-sends the `Authorization` header to a
