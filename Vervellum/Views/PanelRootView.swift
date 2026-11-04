@@ -120,13 +120,13 @@ struct PanelRootView: View {
     /// and `backOut` for where it sits in what Escape undoes.
     @State private var showsLevelPicker = false
 
-    /// Whether the providers are configured, sampled rather than computed.
+    /// Provider problems for the selected research level, sampled rather than computed.
     ///
     /// Checking this needs a Keychain read, and a computed property would perform one
     /// on **every** SwiftUI render — which during a streamed answer is many times a
-    /// second. It is refreshed when the panel is summoned and after Settings closes,
-    /// which are the only moments it can change.
-    @State private var isConfigured = false
+    /// second. It is refreshed when the panel is summoned, after Settings closes, and
+    /// when the selected research level changes — the only moments it can change.
+    @State private var configurationProblems = ["Provider settings have not been checked yet."]
 
     var body: some View {
         VStack(spacing: 0) {
@@ -239,7 +239,8 @@ struct PanelRootView: View {
                 // Finished turns still skip body updates through `.equatable()` below.
                 VStack(alignment: .leading, spacing: PanelTheme.Space.section) {
                     if engine.thread.isEmpty && notice == nil {
-                        EmptyStateView(isConfigured: isConfigured,
+                        EmptyStateView(configurationProblems: configurationProblems,
+                                       searches: preferences.researchLevel.searches,
                                        summonShortcut: preferences.summonHotkey.displayString,
                                        onOpenSettings: onOpenSettings,
                                        onSeedComposer: { draft = $0 })
@@ -387,6 +388,7 @@ struct PanelRootView: View {
                 LevelPickerView(selected: preferences.researchLevel,
                                 settings: preferences.providerSettings) { level in
                     preferences.researchLevel = level
+                    refreshConfiguredState()
                     showsLevelPicker = false
                     announce("Research level, \(level.displayName)")
                 }
@@ -1101,10 +1103,8 @@ struct PanelRootView: View {
     private func refreshConfiguredState() {
         let keychain: SecretStore = KeychainStore()
         let settings = preferences.providerSettings
-        isConfigured = settings
-            .problems(hasModelKey: keychain.hasModelKey(for: settings),
-                      hasSearchKey: keychain.hasSearchKey(for: settings))
-            .isEmpty
+        configurationProblems = ProviderReadiness.problems(
+            settings: settings, level: preferences.researchLevel, secrets: keychain)
     }
 
     /// A suggested follow-up, clicked.

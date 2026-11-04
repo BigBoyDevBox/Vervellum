@@ -10,7 +10,8 @@ struct EmptyStateView: View {
 
     @Environment(\.panelTextScale) private var textScale
 
-    let isConfigured: Bool
+    let configurationProblems: [String]
+    let searches: Bool
     let summonShortcut: String
     var onOpenSettings: () -> Void
     /// Loads the composer with the example — seeding, not submitting. The user
@@ -19,7 +20,7 @@ struct EmptyStateView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: PanelTheme.Space.large) {
-            if isConfigured { ready } else { setup }
+            if configurationProblems.isEmpty { ready } else { setup }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -29,8 +30,11 @@ struct EmptyStateView: View {
             Text("Ask a question.")
                 .font(PanelTheme.Font.at(15, textScale, weight: .semibold))
                 .foregroundStyle(PanelTheme.Palette.primaryText)
-            Text("Vervellum plans web searches, runs them, then writes an answer that "
-                 + "cites only what it found — and grades its own claims against that evidence.")
+            Text(searches
+                 ? "Vervellum plans web searches, runs them, then writes an answer that "
+                    + "cites only what it found — and grades its own claims against that evidence."
+                 : "No search sends the question only to the selected model. It does not "
+                    + "search, cite sources, or run the evidence assessment.")
                 .font(PanelTheme.Font.body(textScale))
                 .foregroundStyle(PanelTheme.Palette.secondaryText)
                 .fixedSize(horizontal: false, vertical: true)
@@ -71,11 +75,14 @@ struct EmptyStateView: View {
             Label("Not configured yet", systemImage: "key")
                 .font(PanelTheme.Font.at(14, textScale, weight: .semibold))
                 .foregroundStyle(PanelTheme.Palette.verdict(.mixed))
-            Text("Vervellum needs two things: an OpenAI-compatible model endpoint, and a "
-                 + "web-search key. Both stay on this Mac — the keys go in the Keychain, "
-                 + "and nothing is sent anywhere except to the providers you name.")
+            Text(configurationProblems.joined(separator: " "))
                 .font(PanelTheme.Font.body(textScale))
                 .foregroundStyle(PanelTheme.Palette.secondaryText)
+                .fixedSize(horizontal: false, vertical: true)
+            Text("Provider keys stay in the Keychain and are sent only to the provider "
+                 + "each one belongs to.")
+                .font(PanelTheme.Font.caption(textScale))
+                .foregroundStyle(PanelTheme.Palette.tertiaryText)
                 .fixedSize(horizontal: false, vertical: true)
             Button("Open Settings", action: onOpenSettings)
                 .font(PanelTheme.Font.body(textScale))
