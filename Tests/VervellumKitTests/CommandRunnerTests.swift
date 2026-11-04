@@ -139,6 +139,15 @@ final class CommandRunnerTests: XCTestCase {
         XCTAssertEqual(String(data: result.output, encoding: .utf8), "failed")
     }
 
+    /// A command killed by a signal reports the signal number, as Foundation does. On
+    /// Linux the kernel's `waitid` report and Foundation's race, so both must agree.
+    func testReturnsTheSignalNumberWhenTheCommandIsKilled() async throws {
+        let result = try await run("/bin/sh", ["-c", "printf partial; kill -TERM $$"])
+
+        XCTAssertEqual(result.status, SIGTERM)
+        XCTAssertEqual(String(data: result.output, encoding: .utf8), "partial")
+    }
+
     func testLaunchFailureUsesAnApplicationWrittenMessage() async throws {
         do {
             _ = try await run("/definitely/not/a/program", [])

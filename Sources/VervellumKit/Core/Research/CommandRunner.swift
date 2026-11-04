@@ -391,7 +391,9 @@ final class CommandRunner: CommandRunning {
         /// only when the last descendant exits. `WNOWAIT` leaves the child waitable, so
         /// Foundation still reaps it, and its pid cannot be reused before then.
         private func pollDirectChild(rescheduling: Bool) {
-            guard launched, !childExited, !completed else { return }
+            // Once Foundation calls the child stopped it has reaped it, and its own
+            // report is on the way; asking about a reaped pid could match a recycled one.
+            guard launched, !childExited, !completed, process.isRunning else { return }
             var info = siginfo_t()
             if waitid(P_PID, id_t(process.processIdentifier), &info,
                       WEXITED | WNOHANG | WNOWAIT) == 0,
@@ -400,8 +402,8 @@ final class CommandRunner: CommandRunning {
                 childDidExit(status: info._sifields._sigchld.si_status)
                 return
             }
-            // Still running, or already reaped by Foundation, whose handler is then on
-            // its way. Either way, keep asking only while Foundation calls it running.
+            // Still running, or reaped by Foundation since the guard above, whose handler
+            // is then on its way. Keep asking only while Foundation calls it running.
             if rescheduling, process.isRunning { scheduleDirectChildPoll() }
         }
         #endif
