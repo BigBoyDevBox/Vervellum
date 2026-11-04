@@ -224,6 +224,16 @@ final class ProviderSettingsTests: XCTestCase {
         XCTAssertNil(ProviderSettings.decodeModelProfiles(""))
     }
 
+    /// A nonempty array where not one row can be read is damaged, not a deliberate
+    /// request for no providers. Preserve the pre-salvage nil result so callers can use
+    /// the legacy single-provider mirror; an actually empty array remains readable.
+    func testAProfileListWhereNothingSurvivesFallsBackAsUnreadable() {
+        XCTAssertNil(ProviderSettings.decodeModelProfiles("[17, true]"))
+        XCTAssertNil(ProviderSettings.decodeSearchProfiles("[17, true]"))
+        XCTAssertEqual(ProviderSettings.decodeModelProfiles("[]"), [])
+        XCTAssertEqual(ProviderSettings.decodeSearchProfiles("[]"), [])
+    }
+
     /// A field added later must not make an existing settings file unreadable — the
     /// recovery from that is a user re-pasting every endpoint they had configured.
     func testAProfileMissingFieldsStillDecodes() {

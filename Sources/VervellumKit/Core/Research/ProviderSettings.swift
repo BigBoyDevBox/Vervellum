@@ -616,11 +616,7 @@ struct ProviderSettings: Equatable, Codable {
     /// caller treats as "no list yet" and falls back to the single-provider keys —
     /// a corrupted list costs the extra profiles, never the ability to launch.
     static func decodeModelProfiles(_ text: String) -> [ModelProfile]? {
-        guard let data = text.data(using: .utf8) else { return nil }
-        guard let decoded = try? JSONDecoder().decode(
-            [LossyDecodable<ModelProfile>].self, from: data)
-        else { return nil }
-        return decoded.compactMap(\.value)
+        decodeProfiles(ModelProfile.self, from: text)
     }
 
     static func encodeSearchProfiles(_ profiles: [SearchProfile]) -> String? {
@@ -631,11 +627,23 @@ struct ProviderSettings: Equatable, Codable {
     }
 
     static func decodeSearchProfiles(_ text: String) -> [SearchProfile]? {
+        decodeProfiles(SearchProfile.self, from: text)
+    }
+
+    private static func decodeProfiles<Value: Decodable>(
+        _ type: Value.Type,
+        from text: String
+    ) -> [Value]? {
         guard let data = text.data(using: .utf8) else { return nil }
         guard let decoded = try? JSONDecoder().decode(
-            [LossyDecodable<SearchProfile>].self, from: data)
+            [LossyDecodable<Value>].self, from: data)
         else { return nil }
-        return decoded.compactMap(\.value)
+        let surviving = decoded.compactMap(\.value)
+        // `[]` is a readable, deliberately empty list. A nonempty array where no row
+        // survived is damaged and keeps the pre-salvage nil contract, allowing callers
+        // to recover the legacy single-provider mirror instead of adopting no provider.
+        guard decoded.isEmpty || !surviving.isEmpty else { return nil }
+        return surviving
     }
 
     // MARK: URL shaping
