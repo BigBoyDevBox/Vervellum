@@ -244,6 +244,7 @@ final class UserDefaultsSettingsStore: SettingsStore {
 
     init(defaults: UserDefaults) { self.defaults = defaults }
 
+    func contains(_ key: String) -> Bool { defaults.object(forKey: key) != nil }
     func string(for key: String) -> String? { defaults.string(forKey: key) }
     func double(for key: String) -> Double? { defaults.object(forKey: key) as? Double }
     func bool(for key: String) -> Bool? { defaults.object(forKey: key) as? Bool }

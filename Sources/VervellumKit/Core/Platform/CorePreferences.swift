@@ -52,7 +52,6 @@ final class CorePreferences {
         /// exactly that reason. It is also the setting that changes *who Vervellum talks
         /// to*, so it is named in `PRIVACY.md` and switchable in one control; `.off` is
         /// what every build before it did.
-        static let pageReading = PageReadingMode.direct
         static let readerEndpoint = ProviderSettings.defaultReaderEndpoint
         /// A failing model provider hands the turn to the next one configured.
         ///
@@ -189,7 +188,7 @@ final class CorePreferences {
                 .flatMap { SearchProviderKind(rawValue: $0) } ?? .mcp,
             modelFallback: store.bool(for: Key.modelFallback) ?? Default.modelFallback,
             pageReading: PageReadingMode.persisted(rawPageReading,
-                                                   isPresent: rawPageReading != nil),
+                                                   isPresent: store.contains(Key.pageReading)),
             readerEndpoint: store.string(for: Key.readerEndpoint) ?? Default.readerEndpoint)
 
         if let encoded = store.string(for: Key.modelProviders),

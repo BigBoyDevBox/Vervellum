@@ -174,11 +174,14 @@ enum PageReadingMode: String, Codable, CaseIterable, Identifiable, Equatable {
 
     var id: String { rawValue }
 
+    /// The historical default applied only when no durable setting exists.
+    static let defaultMode: PageReadingMode = .direct
+
     /// Reads a durable setting without turning a future privacy mode into a direct
     /// request. Absence is the old-build/fresh-install case and keeps the historical
     /// default; a value that is present but unknown fails closed to snippets only.
     static func persisted(_ rawValue: String?, isPresent: Bool) -> PageReadingMode {
-        guard isPresent else { return .direct }
+        guard isPresent else { return defaultMode }
         return rawValue.flatMap(PageReadingMode.init(rawValue:)) ?? .off
     }
 

@@ -7,6 +7,7 @@ import Foundation
 /// `CorePreferences`, which is shared, so a platform cannot accidentally ship a
 /// different idea of what a valid panel width is.
 protocol SettingsStore: AnyObject {
+    func contains(_ key: String) -> Bool
     func string(for key: String) -> String?
     func double(for key: String) -> Double?
     func bool(for key: String) -> Bool?
@@ -21,6 +22,7 @@ final class MemorySettingsStore: SettingsStore {
 
     init(_ initial: [String: Any] = [:]) { values = initial }
 
+    func contains(_ key: String) -> Bool { values[key] != nil }
     func string(for key: String) -> String? { values[key] as? String }
     func double(for key: String) -> Double? { values[key] as? Double }
     func bool(for key: String) -> Bool? { values[key] as? Bool }
@@ -54,6 +56,7 @@ final class JSONFileSettingsStore: SettingsStore {
         }
     }
 
+    func contains(_ key: String) -> Bool { values[key] != nil }
     func string(for key: String) -> String? { values[key] as? String }
     func bool(for key: String) -> Bool? { values[key] as? Bool }
 
