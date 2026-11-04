@@ -110,7 +110,8 @@ runs the searches and answers based on current sources.
   Exa and SearXNG, and only recognized tool names are accepted — or a **SearXNG
   instance queried directly**, with no MCP bridge in between, or **Kagi** through the
   [`kagi` command-line tool](https://github.com/Microck/kagi-cli) you have already
-  signed in with. Model replies must
+  signed in with (macOS and native Linux installs; the Flatpak cannot reach host
+  executables or their authentication files). Model replies must
   finish with `finish_reason: stop`; malformed or unfinished replies remain
   incomplete. Keys live in your Keychain on macOS, one per configured provider.
 - **As many models as you want, chosen per question.** Configure several providers —
@@ -160,11 +161,23 @@ vervellum --install-shortcut          # binds ⌃⌥⌘Space in GNOME
 
 # or sandboxed (any distro with Flatpak):
 flatpak install --user ./vervellum-linux-amd64.flatpak
-# Flatpak redirects HOME: its settings live under
-# ~/.var/app/ch.lkmc.Vervellum/config/vervellum/ instead.
 ```
 
-Configure it by editing `~/.config/vervellum/settings.json`:
+Configure a native `.deb` install by editing:
+
+```text
+~/.config/vervellum/settings.json
+```
+
+For the Flatpak, edit this file instead:
+
+```text
+~/.var/app/ch.lkmc.Vervellum/config/vervellum/settings.json
+```
+
+Flatpak gives the app its own configuration home and does not read the native path. The
+`ch.lkmc.Vervellum` directory is the application ID declared by the Flatpak manifest.
+Both files use the same JSON shape:
 
 ```json
 {
@@ -188,8 +201,9 @@ at the instance (its home page is enough — `/search` is appended):
 }
 ```
 
-To search Kagi, install the [`kagi` CLI](https://github.com/Microck/kagi-cli), sign it
-in once with `kagi auth`, and select it as the provider:
+For a native `.deb` install, Kagi search uses the
+[`kagi` CLI](https://github.com/Microck/kagi-cli). Install it, sign in once with
+`kagi auth`, and select it as the provider:
 
 ```json
 {
@@ -202,6 +216,11 @@ in once with `kagi auth`, and select it as the provider:
 found on `PATH` and in the usual install directories, or give the full path to the
 binary. The credential stays in the CLI — Vervellum never sees it, and needs no key of
 its own for this provider.
+
+The Flatpak cannot use the Kagi CLI backend: it neither bundles the program nor exposes
+host executables and their authentication files. Choose an MCP or SearXNG search
+provider in the Flatpak. The sandbox deliberately is not widened to run arbitrary host
+programs.
 
 Page reading is `pageReading`, one of `"off"`, `"direct"` or `"reader"` (default
 `"direct"`), with `readerEndpoint` for the reader service and its key in
