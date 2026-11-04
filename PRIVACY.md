@@ -32,7 +32,8 @@ Vervellum makes network requests in exactly five cases, each with a fixed purpos
   configured, selected first: two indexes that disagree are most of what the wider net
   is for, and the level picker says so before you choose it. The other levels use the
   selected provider alone. Queries are shown to you in the panel's process trail before
-  the answer arrives. With **Kagi CLI** selected the query reaches Kagi through that tool,
+  the answer arrives. A query to **Kagi CLI** — the selected provider, or a configured one
+  a Deep rounds search fans out to — reaches Kagi through that tool,
   under the credential you gave it with `kagi auth` rather than one held here, so the
   search is attributed to your Kagi account exactly as a search you typed there would
   be. Vervellum runs the program, and normally never sees the credential — unless you
