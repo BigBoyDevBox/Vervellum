@@ -1,1382 +1,2011 @@
-# Vervellum — review archive
-
-**Current status:** [PR-REVIEW.md](PR-REVIEW.md) records the decisions for all 42
-original PRs and supersedes every pending/in-flight table below. Consult it before
-implementing an older proposal; many findings below are now fixed or superseded.
-
-## Historical analysis, before PR #69
-
-The remaining text preserves earlier findings, identifiers, and acceptance criteria.
-Its code descriptions, test counts, and PR statuses describe those snapshots, not the
-current implementation.
-
-Combines the prior cumulative `main` analysis (`0ce3a2d`) with the
-[Astra review](https://github.com/L-K-M/Vervellum/blob/4b35bba4554a7a975e8eb9f4755689b943120563/astra.md).
-Checked against `main` at `0ce3a2d`: application code remains at the reviewed baseline;
-later changes are release metadata, README, the screenshot, and analysis.
-
-Implemented or in-flight work is separated below; do not reimplement it. Original
-Astra findings remain in review PR #40. Earlier identifiers are mapped to consolidated
-tasks so neither distinct requirements nor their provenance disappear.
-
-Merged the [Fable review](fable.md)
-(`fable.md`, sections 1–12) at `main` `8652ea8`: seventeen of its findings ship as
-[pull requests #53–#68](#fable-patches), its remaining findings and ideas are folded
-into the existing tasks as **Fable status** paragraphs or added as A54–A70, and its
-identifiers are mapped below. Every Fable bug claim (116) was re-derived from the code
-by two independent verifiers before it was kept (105 confirmed, 11 refuted or dropped —
-`fable.md` §11.3 lists them); every Fable idea (89) was scored 1–10 by three judges, and
-the scores decided what became a task here. The disputes the review lost are recorded
-in A61 and in `fable.md` §11.2.
-
-**P1:** trust, data loss, blocking behavior. **P2:** usability/performance.
-**P3:** expansion. **S/M/L:** local change / several components / design work.
-`Core/` means `Sources/VervellumKit/Core/`; `Linux/` means
-`Sources/VervellumKit/Linux/`. Visual hypotheses require desktop verification.
-
-## Historical pending-PR inventory
-
-### Astra patches
-
-All branches now live in `L-K-M/Vervellum`. Merge #21 first, then review the five
-independent fixes. Remove pending rows only when upstream contains the work.
-
-| ID | Patch | Remaining work |
-|---|---|---|
-| A41, A42 | [#21 — Test/CI baseline](https://github.com/L-K-M/Vervellum/pull/21) | Merge first: explicit `UInt` conversion and correct desktop-validation basename. |
-| A02 | [#30 — Exact assessment citations](https://github.com/L-K-M/Vervellum/pull/30) | Review and merge; preserve Boolean/fraction/overflow rejection. |
-| A03 | [#26 — Self-contained transcripts](https://github.com/L-K-M/Vervellum/pull/26) | Review Copy/CLI output and merge. |
-| A21 | [#27 — Linear SSE line framing](https://github.com/L-K-M/Vervellum/pull/27) | Review byte-framing changes and merge. |
-| A08 | [#29 — Private result diagnostics](https://github.com/L-K-M/Vervellum/pull/29) | Review retained diagnostic schema and merge. |
-| A16 | [#28 — GTK native-close lifecycle](https://github.com/L-K-M/Vervellum/pull/28) | Merge; verify GNOME Wayland close/reopen manually. |
-
-Fork-backed #4/#5/#6/#7/#8/#11 were replaced respectively by
-#21/#30/#26/#27/#29/#28. The CI-only correction in #37 was consolidated into #21:
-without both baseline fixes, CI still fails. Documentation PR #40 replaces #1 and
-preserves `astra.md`; this queue is published directly to `main`. No code PR was merged.
-
-Every fix followed an observed failure. The five original fixes combine without
-conflicts and pass **226 tests** locally on Swift 6.0.3/GTK 4.8.3, including Xvfb
-close/reopen. The SSE debug stress fixture took 0.886s before and 0.036s after; this
-is not a UI benchmark. All six current code PRs pass macOS build/tests and Ubuntu
-build/tests/package/install CI; #28 also passes its Xvfb lifecycle check.
-
-GLM was attempted twice per migrated code PR. `ZAI_API_KEY` is unavailable, so both
-attempts skipped the actual review despite a green workflow result. No review or
-inline feedback arrived. This is reviewer unavailability, not approval. Real-desktop
-layout, GNOME Wayland, full-screen placement, Accessibility selection, and IME still
-need manual QA.
-
-### Fable patches
-
-Seventeen independent branches, each based on the CI repair in #2 so its test target
-compiles (those two commits become no-ops once #2 or #21 merges). Every Core and
-Linux change was built and its tests run on Swift 6.1 / Ubuntu 24.04 before pushing
-(198 → 204 tests, 0 failures); #67 is macOS-only and was compiled by CI. All are green
-on both CI workflows. The GLM reviewer is configured without its key and skipped
-every one, so no automated review arrived; steady state was green CI with no comments.
-
-| PR | Branch | What it does | Covers |
-|---|---|---|---|
-| [#2](https://github.com/L-K-M/Vervellum/pull/2) | `fix/ci-test-compile` | The shared test target compiles (`.map { Int($0) }`); the desktop entry is validated under its reverse-DNS filename. | A41/A42 — same fix as #21/#38/#46; merge one. |
-| [#53](https://github.com/L-K-M/Vervellum/pull/53) | `fix/streaming-robustness` | An SSE `error` frame fails the turn with Vervellum's own words; cancellation is checked after the stream loop and in `/direct`; `[DONE]` flushes the pending frame; CR/CRLF/BOM handled; a partial answer kept after Stop is citation-validated; payloads use `sortedKeys`. `SSEFrameAssembler` and `StreamingReply` are pure and tested. | A04 (most), A05, part of A21 (overlaps #27 — pick one). |
-| [#54](https://github.com/L-K-M/Vervellum/pull/54) | `fix/provider-compat` | On HTTP 400 for a request that carried optional parameters (`temperature`, `response_format: json_object`), retry once without them and remember the outcome; `<think>` blocks stripped and every brace-balanced run tried before giving up; the quota-vs-key heuristic no longer matches bare "token". | Part of A10 (temperature capability), A43-adjacent. |
-| [#55](https://github.com/L-K-M/Vervellum/pull/55) | `fix/search-tool-resolution` | The MCP search tool is resolved by shape (known names, else the single tool, else a "search" tool with a query-shaped string), the error lists advertised names, README wording corrected. | Part of A10, part of A40. |
-| [#56](https://github.com/L-K-M/Vervellum/pull/56) | `fix/citations-in-code` | `CitationValidator` skips fenced and inline code (n-backtick pairing, unterminated fences); the answer prompt says a bracketed number in code is code. | A01-adjacent (validation side), A29 ("keep citations literal in code"). |
-| [#57](https://github.com/L-K-M/Vervellum/pull/57) | `fix/assessment-failure` | An assessment failure adds an `assessmentUnavailable` notice and completes the turn; `sources` accepted as array/scalar/string; verdict synonyms mapped with an `unreadableVerdictDropped` notice; unknown `TurnNotice` values decode as `.unknown`; empty-plan turns get a fixed reading so Retry keeps research mode; deterministic source numbering. | A31 (failure path; the retry action itself remains), part of A12 (tolerant notices). Overlaps #30/#23 on citation parsing philosophy (#57 is lenient with exact-integer doubles, #30 rejects fractions) — reconcile. |
-| [#58](https://github.com/L-K-M/Vervellum/pull/58) | `fix/history-citation-markers` | `[n]` markers are stripped from historic answers before they enter the payload; the prompt says the numbered evidence is this turn's alone. | A01-adjacent; new. |
-| [#59](https://github.com/L-K-M/Vervellum/pull/59) | `fix/linux-window-lifecycle` | `hide-on-close` (the WM close destroyed the window under a held service — use-after-free on the next shortcut); the shortcut hides only an *active* window; Return never cancels a run, Ctrl-Return always submits; the thread scrolls to the newest turn unless the reader scrolled up; "Stopped" in the trail; "Try again" on failed and stopped turns; the hint follows `submitOnReturn`. | A16 (overlaps #28 — pick one), part of A24. |
-| [#60](https://github.com/L-K-M/Vervellum/pull/60) | `fix/thread-archive-safety` | The version stamp is decoded before the document, a newer primary *or* backup makes the archive read-only and neither is adopted; non-terminal turns load as failed with their partial answer; `.bak` rotation only from a primary that decoded or was written by this process; erase failures are recorded in `eraseFailure`, shown in Settings ▸ General; `SecretRedactor` catches bare Stripe keys and stops matching "a basic misunderstanding". | A12 (most), A13 (reporting), A14 (rotation), A15 (recovery half). |
-| [#61](https://github.com/L-K-M/Vervellum/pull/61) | `fix/transcript-and-source-urls` | The transcript keeps the answer when the failure came after it, marks a stopped turn, and lists sources cited only by a verdict; structured `url` fields are no longer punctuation-trimmed (`…/Mercury_(planet)`). | A11 (structured URLs), A03-adjacent (overlaps #26 — pick one), A44 groundwork. |
-| [#62](https://github.com/L-K-M/Vervellum/pull/62) | `fix/pango-emphasis-citations` | Emphasis spanning a citation renders on Linux (placeholder character, one emphasis pass); first `PangoMarkupTests`. | Part of A29 (Linux nested inline formatting). |
-| [#63](https://github.com/L-K-M/Vervellum/pull/63) | `fix/deb-prerelease-version` | `1.1.0-beta.1` packages as `1.1.0~beta.1` so the release outranks it; both workflow jobs export `DEB_VERSION`. | New (packaging). |
-| [#64](https://github.com/L-K-M/Vervellum/pull/64) | `fix/non-streaming-timeout` | Non-streaming plan/assessment requests get the 600 s deadline as their `timeoutInterval` (they are silent until the model finishes, so the 120 s idle timeout cut off slow local models); streams keep the idle timeout; `NSURLErrorTimedOut` maps to a distinct message. | Part of A22 (the inverse of its "tighter budget" suggestion, with the reason). |
-| [#65](https://github.com/L-K-M/Vervellum/pull/65) | `feat/prompt-quality` | Write in the question's language; weigh `published` against `today` in answer and assessment; the assessment addresses a fresh model and is assembled through `ResearchContext` with the reading and the budgeted thread; "up to N searches, or none". `ResearchPromptsTests` pins each property. | Part of A06 (assessment assembled), new prompt work. |
-| [#66](https://github.com/L-K-M/Vervellum/pull/66) | `feat/linux-preferences` | The GTK thread honours `textScale` (one CSS rule) and `showProcessTrail` (the running stage still shows); README lists the keys. | Part of A26 (Linux), A40 (PRIVACY claim now true). |
-| [#67](https://github.com/L-K-M/Vervellum/pull/67) | `fix/macos-thread-links-settings` | Model-written links are dropped after markdown parsing; a deleted thread is taken out of the engine too (history row and Delete All); Settings opens above the panel (panel dismissed without restoring activation, Settings restores the remembered app). | A01 (link stripping), A13 (resurrection), new (Settings placement). |
-| [#68](https://github.com/L-K-M/Vervellum/pull/68) | `fix/packaging-hygiene` | One main category in the desktop entry; the Debian job's token is `contents: read`. | New (packaging). |
-
-Pairs that fix the same defect twice: #53/#27 (SSE framing), #61/#26 (transcripts),
-#59/#28 (GTK close), #2/#21/#38/#46 (test compile). Merge one of each and close the
-other; the Fable side was written without reading the other branch.
-
-### In-flight work retained from the earlier analysis
-
-These entries are preserved from `main`; their PRs were not opened, inspected, or
-modified during the Astra review. Their listed scope is prior analysis, not new
-verification. Do not duplicate their implementation.
-
-| PR | Branch | Recorded scope |
-|---|---|---|
-| #46 | `astra2/swift62-test-compile` | Repair Swift test inference; overlaps the test half of #21/#38. |
-| #38 | `k3/fix-archive-test-inference` | Repair test inference and desktop-validation basename failures that made main CI red on both platforms. |
-| #22 | `k3/atx-heading-closing-sequence` | Preserve literal trailing `#` in headings unless a valid space-prefixed closing sequence exists. Core/tests. |
-| #23 | `k3/reject-fractional-citations` | Reject fractional source numbers instead of rounding them onto real sources. Core/tests. |
-| #24 | `k3/streaming-render-throttle` | Coalesce macOS prose-only updates to 10 Hz in `ResearchEngine`; alternative to #51. |
-| #51 | `astra2/coalesced-snapshots` | Shared, tested Core `SnapshotCoalescer`; streamed `onThreadChanged` callbacks also checkpoint partial answers. |
-| #25 | `k3/ask-from-history` | Show the active research when asking while History is open. |
-| #31 | `k3/scroll-follow` | `BottomSentinel` and “Latest” control; follow only while pinned; alternative to #49. |
-| #49 | `astra2/pinned-autoscroll` | Preference-probe geometry and hysteresis above coalesced-batch growth; no geometry/scroll ordering assumption. |
-| #32 | `k3/markdown-tables` | Delimiter-gated pipe tables, escaped pipes, normalized ragged rows; macOS Grid and aligned Pango monospace rendering; eight recorded tests. |
-| #33 | `k3/turn-polish` | Ask Again on complete turns; live elapsed process-trail clock. |
-| #34 | `k3/empty-state-examples` | Clickable examples seed the composer. |
-| #35 | `k3/history-search-index` | `ThreadSearchIndex` builds one normalized haystack per thread on library change; alternative to #47. Core/tests. |
-| #47 | `astra2/history-search-perf` | Case-insensitive `range(of:options:)` avoids per-keystroke lowercase allocations without maintaining an index; behavior tests. |
-| #36 | `k3/completion-signal` | Menu-bar hourglass during runs; completion sound when the panel is closed. |
-| #48 | `astra2/search-progress` | Both trails show completed-search counts through `ResearchTurn.searchesCompleted`; tolerant custom decoding preserves older archives. |
-| #50 | `astra2/composer-fixes` | Measure composer height from actual row width; clear redaction banner on hide. |
-| #52 | `astra2/queued-question` | Editable composer during runs; one-slot newest-wins queue with chip/cancel, across both front ends and engine. |
-
-Choose one implementation where patches overlap; close superseded alternatives
-rather than stacking them blindly. Baseline repairs overlap across #46/#21/#38;
-citation fixes across #23/#30; publication throttling across #24/#51; autoscroll
-across #31/#49; history search across #35/#47. #22/#32 cover parts of A29; #48, #50,
-#51, and #52 cover parts of A09, A26, A15/A20, and A23 respectively. Preserve remaining
-acceptance criteria below instead of implementing another copy.
-
-Earlier validation reported 197, later 198+, tests on Swift 6.2.3 and no local Mac
-build. Its fork branches were reported blocked by the same-repository GLM guard and
-first-contributor CI approval, especially view changes now numbered #49/#50/#52;
-those statuses were not rechecked here. A41 was also reproduced on Swift 6.0.3 and Ubuntu Swift 6.1.
-Desktop filename rejection was reproduced with desktop-file-utils 0.26 as well as the
-earlier queue's noted 0.27+. Counts describe snapshots, not comparable coverage totals.
-The CI-image pinning gap is retained as A49.
-
-### Earlier identifier map
-
-B5/D1 → A48; B6/F13 → A31; B7 → A20/A28/A36; G6-adjacent → A04;
-P2/P3 → A20; P4 → A22; G1 → A43; G2 → A33; G3/F9 → A44;
-G4 → A24/A30/A31; G5 → A12; G7 → A45; G8 → A36;
-F5 → A23; F6 → A46; F8 → A28; F10 → A36; F11 → A18;
-F12 → A50; F14 → A51; F15 → A52; D3/V2 → A32; D4 → A47;
-D5 → A25/A32; D6 → A53; V3 → A25; V4 → A09.
-The portability footgun is A41/#21; CI-image pinning is A49.
-
-Fable identifiers (`fable.md`): B1/B2 → #2; B3/B58 → #68; B4 → A49; B5–B9/B21 → #53;
-B10/B11/B19/Q6 → #54; B12/B48 → #55; B13/Q4 → #56; B14/B16–B18/B20 → #57; B15/Q5 → #58;
-B22 → A61 (withdrawn as a bug); B23/B70/B71 → #67; B24/F3 → #52/A23; B25/P4 → #49/#31/A19;
-B26/U10 → A25/A64; B27 → A18; B28/B77 → A75; B29 → A28; B30 → A60; B31/B32 → A75;
-B33/B35/B37–B39/B43/B52 → #59; B34 → A24; B36/B59 → A18/A76; B40 → A17; B41/B42 → A18;
-B44/P7 → A20; B45/B66 → #60/A15; B46 → A20/#35/#47; B47/B64 → #60/A12/A14;
-B49 → A49; B50 → A09/#48; B51 → A76; B53 → #63; B54 → #62; B55 → #66; B56/B57 → A76;
-B60–B63 → #61; B65 → #64; B67 → A62; B68 → #32/A29; B69 → A40; B72–B76 → A75;
-P1/P3 → #51/#24/#50; P2/P5 → A20; P6/P8 → A17; U1 → A09; U2 → #52; U3 → A19; U4 → A54;
-U5 → A28/A23; U6 → A36/A46; U7 → A55; U8 → A23; U9 → A63; U11 → A50; U12 → A34/A10;
-V1/V2 → A27; V3 → A26; V4–V12 → A60; F1 → A56; F2 → A35; F4/F5 → A10/A34; F6 → A34;
-F7 → A46; F8 → A44; F9 → A51/A67; F10 → A30; F11 → A37; F12 → A57; F13 → A58; F14 → A59;
-Q1–Q3/Q7 → #65; D1/D2/D7/D12 → A36; D6 → A61; D3/D5/D8/D9/D10/D11 → declined (A36).
-Fable §11.6: B78/B82/B83 → A75; B79/B80 → A27; B81/B87 → A26; B84/B85 → A01; B86 → A25;
-B88 → A28; B89/B93 → #67; B90/B92/B94–B97 → A77; B91 → A18; B98 → A38; B99 → A12;
-B100 → A78; B101–B107 → A40; B108 → A76.
-
-## Next: trust and data preservation
-
-### A01 · P1/M — Only numbered citations create actionable links
-
-**Where:** `Vervellum/Views/MarkdownText.swift`, `Core/Research/CitationValidator.swift`.
-
-Model Markdown currently creates `AttributedString` link attributes without being
-stripped. Post-stream warnings do not prevent activation. Remove model-origin links
-before inserting application-owned citation links. Treat literal U+FFFC separately
-so it cannot shift placeholder substitution. Keep links inert even while streaming;
-do not replace numeric citations with URL allow-list matching.
-
-**Accept:** tests cover Markdown/autolinks, custom schemes, emphasis, literal U+FFFC,
-partial streams, and grouped citations. Only app-resolved citation numbers produce
-links. Correct the corresponding security claims. See A25 for grouped-source UX.
-
-**Fable status:** Covered by #67 (link attribute dropped after parsing, macOS) and #58 (historic markers stripped). Still open from Fable: `[n]` inside *inline* code becomes a chip on macOS because masking runs before markdown parsing — skip placeholders whose run carries `inlinePresentationIntent.code` (B85; #56 fixed the validator side); a literal U+FFFC in the answer shifts every chip after it — strip it in `mask` or use a private-use placeholder as #62 does on Linux (B84). Also open: literal U+FFFC handling, tests for autolinks/custom schemes/partial streams (a `MarkdownTextTests` file — the parser-level test in `MarkdownParserTests` cannot fail for the reason it states, `fable.md` B69), and the SECURITY/PLAN wording that says a model link is "structurally impossible".
+# Vervellum research backlog
 
-### A04 · P1/M — Detect incomplete or erroneous answer streams
+Consolidated 2026-11-04 against `origin/main` at `1924f01`. Completed requirements
+and implemented slices in open PRs are omitted. Earlier context remains in
+[PR-REVIEW.md](PR-REVIEW.md), [fable.md](fable.md) and the
+[historical analysis](https://github.com/L-K-M/Vervellum/blob/0311b35/ANALYSIS.md).
 
-**Where:** `HTTPTransport.streamJSONEvents`, `ChatCompletionsClient.streamText`.
+Relevant open PRs through #191 were checked for overlap; only their implemented
+slices are omitted. They are not merged. Restore a requirement from its PR if it
+closes unmerged. Sol3 feature PRs were verified on their individual heads rather
+than as a combined stack; parallel PRs not cited here were not reviewed. #138's
+proposed code-URL exemption conflicts with the citation contract and was flagged
+on that PR.
 
-Malformed JSON frames and error envelopes can be ignored; clean EOF without a finish
-reason can pass as success. The non-streaming fallback's `try? messageContent`
-discards useful failure classification. Introduce a completion-state parser with an
-explicit compatibility policy; preserve partial prose but never assess a failed
-answer as though complete. Keep provider errors sanitized.
+The nine earlier Sol2 patches passed together: 903 macOS tests with Xcode 26.0.1 on
+macOS 15 Intel; the 839-case Linux suite with the display-dependent GTK test
+skipped; a release build; eleven loopback provider fixtures; three dependency
+discovery tests. Local Xvfb could not initialize XKB. Real VoiceOver, Wayland,
+macOS 26 glass/placement and frame-time QA remain unverified.
 
-Earlier G6-adjacent proposed accepting truncated `/direct` output. Partial prose is
-already retained by the runner; #26 also preserves it in exports. The remaining
-choice is incomplete-result labeling/retry, not treating `finish_reason: length` as
-success. Whitespace-only replies must still fail.
+Answers must not write URLs, bare domains or Markdown links, including in code.
+Keep numeric-only citations, sourced evidential verdicts, explicit uncertainty,
+answer-before-assessment ordering and visible context trimming. Core stays
+Foundation/Dispatch-only without main-actor hops. Keep credentials in the existing
+secret stores, foreign errors sanitized, and provider redirects refused.
+Decode persisted additions tolerantly and test old archives and lossless round
+trips. Fix bugs test-first; profile performance claims before redesigning.
 
-**Accept:** fixture tests for EOF mid-answer, malformed data, error envelopes,
-`length`, filters, fallback JSON, `[DONE]`, and usage-only frames. Document which
-explicit completion signals are accepted. Keep this separate from A21's line parser.
+The earlier review treated literal setext headings and paced, non-per-token saves
+as deliberate contracts, not defects. Do not change those without an explicit
+design decision and the ambiguous table-delimiter regression tests.
 
-**Fable status:** Covered by #53 (error frames, cancellation after the loop, `[DONE]`, CR/BOM, sorted payloads) and #54 (400 retry). Remaining: the EOF-without-`finish_reason` policy and usage-only frames, and a written list of the completion signals accepted. #53 and #27 both touch `readLines`; merge one.
+Historical scores are mean · user/engineer/designer · effort, not new measurements.
+S means local work, M several components, L design work. Estimates are rough.
 
-### A05 · P1/S — Validate retained prose on every terminal path
+## Important
 
-**Where:** `Core/Research/ResearchRunner.swift`.
+### A09 · Describe only the searches that actually ran
 
-Validation runs only after successful streaming. Validate a stopped/failed answer
-once in terminal cleanup and attach notices for invalid references or literal URLs.
-Do not flag half-arrived markers during normal streaming.
+Bugs — important
 
-**Accept:** stop/failure after an invalid marker or URL preserves the prose and its
-warning. Successful/direct turns still validate once. Complements A01 and A04.
+Completed-count ticks, `failedQueries`/`searchFailures` state and an elapsed clock
+exist, but per-query outcome is not persisted or shown in detail, and `searches_run`
+in the answer context still lists every planned query including failed ones; the
+model is told searches ran that did not.
 
-**Fable status:** Covered by #53: `run`'s catch validates a non-empty partial answer. Remaining: a direct-mode terminal-path test.
+Suggested fix: persist per-query pending/running/succeeded/failed state with safe
+(errors-sanitized) messages, per-query elapsed time and contribution; show labeled
+success/failure glyphs beside planned queries in the trail; summarize partial
+failure as "2/4 succeeded" with an incomplete-evidence notice; pass only successful
+searches to the model as run.
 
-### A06 · P1/M — Enforce budgets for every stage
+Accept: cancellation and archive-migration tests; preserve the current tested
+concurrent fan-out and deterministic source numbering. No failed search is described
+as successful. Publish stable intermediate evidence and show a compact
+Plan → Search → Answer → Assess timeline.
 
-**Where:** `Core/Research/ResearchContext.swift`, `ResearchRunner.swift`.
+Historical progress options: 8.3 · 9/7/9 · M; live query counts 8.0 · 8/8/8 · S; stage timeline 5.7 · 5/5/7 · S.
 
-Dropping history cannot fix an oversized question/schema/evidence block; the current
-assembler returns it anyway. Assessment bypasses assembly. Size estimates omit array
-commas. Bytes are described as characters/tokens; 110 KB is no universal 32k-token
-guarantee. Historic answer shortening is silent despite whole-turn-trimming claims.
+Earlier effort: M.
 
-Give each stage a measured budget and output reserve. Reject oversized current input
-visibly, disclose historical shortening, count serialized punctuation, and distinguish
-heuristics from provider token limits. Replace repeated array `removeFirst` with
-prefix indices.
+### A11 · Reject credentials in source URLs
 
-**Accept:** giant question/schema/answer, Unicode, exact boundaries, zero-history,
-and long-history tests. No silently over-budget or silently cropped current input.
+Bugs — important
 
-**Fable status:** #65 assembles the assessment through `ResearchContext.assemble` (same budget, reading and thread as the answer). The budget/reserve/disclosure work above is still open.
+Harvested source URLs can still carry userinfo. Provider-endpoint rejection does not protect URLs that become sources.
 
-### A07 · P1/M — Redact before selection truncation
+Suggested fix: Reject userinfo in the shared source-URL validator before a URL becomes a Source.
 
-**Where:** `Vervellum/Selection/SelectedTextReader.swift`, `App/AppDelegate.swift`,
-`Core/Platform/SecretRedactor.swift`.
+Accept: Cover credential-bearing structured and prose URLs without damaging legitimate query punctuation or parentheses.
 
-The 8,000-character selection cap can remove a PEM closing delimiter before the
-redactor sees it, defeating its complete-block pattern. Partial selections already
-need conservative treatment. Return capture metadata, redact bounded captured text
-before display truncation, and redact unterminated private-key blocks conservatively.
+Where: Sources/VervellumKit/Core/Research/SourceHarvester.swift:240–251. Earlier effort: M.
 
-**Accept:** long complete PEMs, cut-off delimiters, ordinary prose, and visible
-truncation/redaction notices. Captured text stays opt-in and is never auto-sent/logged.
+### A11a · Keep neighboring search snippets separate
 
-### A12 · P1/M — Check archive versions before decoding turns
+Bugs — important
 
-**Where:** `Core/Store/ThreadArchive.swift`, `ThreadLibrary.swift`.
+EvidenceExtractor can assign overlapping context to adjacent prose result links, making one result appear to support another.
 
-Full decoding precedes the version check. An unknown future enum can fail decoding,
-trigger fallback, and let an older build overwrite the newer file. Decode a minimal
-version envelope first; expose missing/corrupt/newer/recovered states to the UI.
+Suggested fix: Partition dense prose into non-overlapping result items; keep each snippet with its own URL.
 
-**Accept:** unknown verdict/notice/stage and missing fields in a newer document never
-allow writes, even with a valid older backup or history disabled. Explain read-only
-status rather than pretending saves work. Surface `ThreadStore.isReadOnly` in a
-History banner; a stderr warning is not sufficient (earlier G5).
+Accept: Results without blank lines, multiple links, distinct pages and permissive extraction must not fabricate source context.
 
-**Fable status:** Covered by #60: a `VersionStamp` is decoded first; a newer primary *or* backup makes the archive read-only and neither is adopted; `currentVersion`'s comment says when to bump it. #57 decodes an unknown `TurnNotice` as `.unknown`. Remaining: unknown `Verdict`/`ResearchStage` values inside the *same* version, and the History banner for `isReadOnly` (still stderr only).
+Where: Sources/VervellumKit/Core/Research/EvidenceExtractor.swift, hits(inParagraph:). Earlier effort: M.
 
-### A13 · P1/M — Make erasure truthful and durable
+### A12 · Protect unknown history values and explain read-only mode
 
-**Where:** `ThreadArchive`, macOS engine/store/settings, `LinuxEnvironment`/panel.
+Bugs — important
 
-History-off and Delete All discard deletion errors. Active research can be saved
-again after erasure. Linux startup with history already disabled leaves old files.
-Define stored-history deletion versus active-session retention; coordinate their
-state and report sanitized deletion errors with retry.
+Future-version primary and backup guards exist. Unknown Verdict or ResearchStage values within the same version still need loss-preserving handling. History does not visibly explain that a newer archive is read-only.
 
-**Accept:** denied deletion, queued writes, completion after Delete All, and relaunch
-with history disabled. Primary and backup disappear or a visible error says they did
-not. A deleted thread must not silently resurrect.
+Suggested fix: Preserve unknown values or refuse writes with a sanitized explanation. Show ThreadStore.isReadOnly in History; do not imply changes will persist.
 
-**Fable status:** Partly covered: #60 records a failed erase in `ThreadArchive.eraseFailure` (message shown under Delete All in Settings ▸ General); #67 stops a deleted thread resurrecting through the engine on macOS. Remaining: retry affordance, Linux relaunch with history already disabled, and the Linux panel's copy of the open thread after `deleteAll`.
+Accept: Unknown same-version enums cannot silently destroy data. Keep future-version protection with an older backup or history disabled. TurnNotice.unknown is already supported and must not become a decoding failure.
 
-### A14 · P1/M — Private, recoverable archive writes
+Where: Sources/VervellumKit/Core/Store/ThreadArchive.swift; Vervellum/Views/HistoryView.swift. Earlier effort: M.
 
-**Where:** `Core/Store/ThreadArchive.swift`.
+### A13 · Finish truthful erasure
 
-Atomic writes use default temporary permissions before chmod. Backup/permission
-failures are swallowed. After backup recovery, rotation can replace the good backup
-with a corrupt primary. `isHistoryEnabled` is also read on the write queue while the
-UI can mutate it.
+Bugs — important
 
-Use restrictive temporary-file creation, atomic replacement, validated backup
-rotation, and serialized archive state. Keep bytes private before writing content.
+`eraseFailure` is recorded and shown, tombstones prevent resurrection, launch-time
+erase runs when history is off, and deleting a thread discards its session. Two clauses
+remain: a recorded deletion failure has no retry affordance; and Linux open-session behavior after `deleteAll` still needs an integration test
+and an explicit stored-history-versus-active-session retention policy.
 
-**Accept:** permission inspection before content writes, recovery followed by write
-failure, backup preservation, concurrent erase/flush, and read-only archive tests.
+Suggested fix: add a retry action to the erase-failure notice (sanitized errors
+only); make the open-thread behavior after `deleteAll` match that explicit retention
+policy, including late callbacks.
 
-**Fable status:** Partly covered: #60 rotates `.bak` only from a primary that decoded at launch or was written by this process (tested: recovery followed by a write leaves the backup intact). Remaining: restrictive temporary-file creation, serialized `isHistoryEnabled`, concurrent erase/flush tests.
+Accept: denied deletion, queued writes, completion after Delete All, and relaunch
+with history disabled all end with primary and backup gone or a visible error saying
+they are not; a deleted thread never silently resurrects on either platform.
 
-### A15 · P1/M — Checkpoint active turns and recover interruptions
+Earlier effort: M.
 
-**Where:** `Vervellum/Research/ResearchEngine.swift`, `Store/ThreadStore.swift`,
-`Linux/LinuxPanel.swift`, `Core/Store/ThreadArchive.swift`.
+### A14 · Surface backup failures and verify concurrent archive operations
 
-macOS persists the initial and final turn, not streamed snapshots; Linux saves only
-at finish. Quit/crash can lose the current answer. Loaded nonterminal turns stay
-apparently active, and queued cancelled callbacks can overwrite newer state.
+Bugs — important
 
-#51 already records streamed snapshot checkpointing; verify it before adding another
-macOS write path. Cover remaining platform and dismissal/termination gaps at a bounded
-cadence. Cancel/snapshot before shutdown; recover nonterminal turns as interrupted
-with partial text and retry.
-Guard callbacks by run/session identity. Coordinate with A13, not per-token writes.
+Validated backup rotation exists; the private-directory fence is covered by open #125. Backup removal/copy failures are still suppressed, and concurrent erase/flush behavior needs regression proof.
 
-**Accept:** relaunch from every stage, quit during streaming, immediate cancel/new
-run, and old callbacks after history replacement. Verify final snapshots are durable.
+Suggested fix: Report backup/permission failures in application-authored terms. Test failure during recovery, backup rotation and concurrent erase/flush before changing synchronization.
 
-**Fable status:** Recovery half covered by #60: non-terminal turns load as `.failed` with "Vervellum quit before this answer finished", partial text kept, Try again offered. Checkpointing during the run is #51's; quit-during-streaming still needs the flush ordering test.
+Accept: Recovery followed by a failed write must preserve a usable backup. Read-only archives remain untouched. Keep permission-before-content proof. Current writes use queued immutable snapshots; do not reintroduce the obsolete claim that writeNow reads mutable isHistoryEnabled.
 
-### A17 · P1/M — Bound Linux credential subprocesses
+Where: Sources/VervellumKit/Core/Store/ThreadArchive.swift:303–337. Earlier effort: M.
 
-**Where:** `LinuxSecretStore`, `ShortcutInstaller`, runner environment acquisition.
+### A17 · Make credential acquisition nonblocking and erasure truthful
 
-Subprocesses have no deadlines and credential reads block GTK during construction
-and Ask. Keyring deletion errors are discarded. Backend descriptions follow writes,
-not actual reads; environment keys win despite contrary documentation.
+Performance problems, stuttering, and jank — important
 
-Introduce asynchronous bounded acquisition behind the secret service. Terminate
-stalled children; return backend and outcome states, explain environment overrides,
-and report failed deletion. Keep secrets off argv and out of errors/logs.
+Open #132 bounds desktop subprocesses, but each synchronous lookup can still stall GTK. Locked-keyring UX, failed keyring deletion and actual read-backend reporting remain unresolved.
 
-**Accept:** hung/missing/failing secret-tool, locked keyring, environment override,
-and deletion tests; GTK remains responsive. Correct Linux key-precedence documentation.
+Suggested fix: Acquire credentials asynchronously through the secret service while retaining process bounds. Report deletion failures and read-only environment overrides. Record which backend answered each account; document the existing JSON file backend and which entry points write it.
 
-### A38 · P1/L — Authenticate distribution and bound updater downloads
+Accept: Hung/missing/failing secret-tool, locked keyrings, environment overrides and deletion tests must leave GTK responsive. Keys stay off argv and out of errors/logs. Do not remove an existing file tier without a compatibility decision for its users.
 
-**Where:** release workflows, `Core/Updates/`, `Vervellum/Updates/`.
+Where: Sources/VervellumKit/Linux/LinuxSecretStore.swift; LinuxPanel.swift. Earlier effort: M.
 
-Ad-hoc signing resets selection grants; updates authenticate neither bytes nor Team
-ID. Updater networking follows redirects and checks size only after download. GitHub
-assets legitimately redirect without provider credentials: use a separate bounded,
-credential-free policy, not the research transport's authorization path.
+### A18 · Protect editing shortcuts from global registration
 
-**Accept:** Developer ID/notarization and signature/Team-ID verification; byte/time
-caps enforced during download; failure never offers an unverified artifact as
-verified. Keep unsigned limitations explicit until implemented. A future apt channel
-needs signed repository metadata. Signing requires maintainer-owned credentials.
+General issues — important
 
-**Fable status:** Add to the SECURITY.md "not protected" list: after every ad-hoc-signed update the login keychain re-prompts for the stored keys, and a denied prompt makes the key look unset because `KeychainStore` deliberately collapses `errSecAuthFailed` to nil (verified against the code; a documentation and diagnosability gap, not a data bug).
+After Shift-only bindings are rejected, any Command-, Control-, or Option-modified
+chord remains registerable, including global versions of editing commands such as
+Command-C, Command-V, and Command-Z. Those bindings can steal routine editing across
+macOS, while Option-only character chords still lack an explicit text-composition
+policy. The remaining policy belongs in `HotkeyBinding.swift` and
+`HotkeyRecorder.swift`, before Carbon registration.
 
-## Next: reading stability, input, and accessibility
+Suggested fix: reject a documented set of protected editing chords before
+registration, define the Option-only policy explicitly, and test recorder, stored
+preferences, duplicate handling, and Carbon registration together.
 
-### A19 · P2/M — Validate the pending reader-controlled scrolling
+### A18a · Make Keychain Clear outcomes match the save model
 
-**Where:** `Vervellum/Views/PanelRootView.swift`.
+General issues — important
 
-The earlier queue records alternatives #31/#49; do not build another follow-mode
-patch. The target is to detach on deliberate scrolling, expose “Latest ↓”,
-and resume explicitly or for a new submission, not merely because layout changed.
-After that patch lands, verify selection, bottom proximity, and newly arriving
-verdicts; implement only uncovered behavior.
+Clear can appear successful when deletion failed. It also deletes immediately even though the Providers pane promises staged changes until Save; provider removal itself is deferred.
 
-**Accept:** scroll-up, selection, momentum, history switching, resizing, and arriving
-findings preserve reading position. New content remains discoverable. No scroll
-animation is retargeted per token.
+Suggested fix: Propagate sanitized deletion outcomes. Either stage Clear with accountsToDelete until Save, or plainly disclose that Clear is immediate in its help and footnote.
 
-**Fable status:** Not touched by Fable; `fable.md` P4/B25 agree with the target. Verify the sentinel approach against a run that appends verdicts after the answer.
+Accept: Denied or failed deletion never reports success. Closing Settings without Save must match the advertised Clear semantics, without confusing provider credential ownership.
 
-### A20 · P2/M — Coalesce updates; keep rendered identity
+Where: Vervellum/Settings/ProvidersView.swift:241–253,247,476,494. Earlier effort: S.
 
-**Where:** runner callbacks, macOS engine/Markdown/composer, Linux panel/GTK.
+### A22 · Absolute provider deadlines and the fixture matrix
 
-Every delta copies/reports the growing turn and enqueues UI work. macOS reparses text,
-citations, and composer layout; GTK queues everything and rebuilds all turn widgets
-up to 10 Hz, destroying selection/focus/link state.
+Performance problems, stuttering, and jank — important
 
-The earlier queue records alternatives #24/#51 for publication throttling. Do not
-duplicate them; measure remaining queue depth before adding pre-enqueue coalescing. Retain every token
-and the exact terminal frame; stage changes remain immediate. Reuse completed GTK
-turn widgets and update only the active answer.
+Non-streaming calls carry a 600 s `timeoutInterval` (deliberately generous: a
+non-streaming call is silent until the model finishes, and a local model on a large
+evidence block legitimately takes minutes), body reads have a wall-clock check, and
+#131 gives credential-free page fetches a true short deadline across redirects. The
+remainder is provider-side: streaming exchanges have no exchange-wide absolute
+deadline through the response head; the ten-minute check runs only on arriving
+chunks and starts after the head, so a stalled or trickling provider exchange can
+hold a call far longer than intended. Cheap SearXNG JSON requests also inherit a
+model-generation-sized allowance instead of the existing cheap-request budget
+(S31). The deadline fixture matrix is still open.
 
-Profile `TurnView.validation` before adding per-answer memoization (earlier P2).
-Composer text-stack allocation is bounded today: cache/reuse measurement only if
-large-paste profiling justifies it (P3), rather than adding speculative machinery.
-Also profile repeated `Source.domain`/`URLComponents` parsing (B7); cache immutable
-domains only with correct URL-change invalidation.
+Suggested fix: enforce an independent monotonic per-exchange deadline for provider
+JSON and streaming calls that cancels the URL task, running from request start
+through the response head and body, while preserving the legitimate
+slow-local-model behavior the 600 s interval protects; route cheap SearXNG calls
+through the existing cheap-JSON budget helper with cancellation coverage.
 
-**Accept:** benchmark 50-turn threads, `LazyVStack`/`fixedSize` layout, long pastes,
-and bursty streams for bounded queues, responsive Stop, stable selection, and exact
-final text. Keep GLib/main-queue dispatch in platform layers, never MainActor in
-Core. Pair with A19.
+Accept: no headers, idle body, trickle-versus-keepalive, cancellation before
+registration, early matching MCP response, refused redirects, and producer-cap
+fixtures; inject clocks/transport at the service boundary or use loopback fixtures,
+never live providers.
 
-**Fable status:** Not duplicated by Fable. Still open here beyond #24/#51: cache parsed blocks keyed by block text and re-parse only the streaming block (P2 — `MarkdownBody` parses the whole answer per body evaluation), and compute `TurnView.validation` once per answer change (P5). On Linux, reuse finished turns' widgets and rebuild only the running box (B44).
+Cheap-call location: Sources/VervellumKit/Core/Research/SearXNGClient.swift:123–128. Cheap-budget effort: 2 hours (S31).
 
-### A23 · P2/M — Preserve drafts and make commands keyboard-first
+Earlier effort: M.
 
-**Where:** `PanelRootView`, `ComposerView`, command completions.
+### A23 · Preserve edited drafts during recall and suggestions
 
-Editing is disabled during runs. Clicking a suggestion replaces a nonempty draft;
-programmatic `NSTextView.string` replacement is not a reliable undo promise. Recall
-stays active after edits, so arrows can discard them. Slash suggestions lack keyboard
-selection.
+Bugs — important
 
-#52 already records editable drafting and a one-slot question queue; do not duplicate
-it. Verify replacement/cancel feedback and that queued work waits for terminal
-assessment, not merely the last answer token. Preserve or explicitly replace drafts
-on suggestions, end recall after edits, and support
-arrows/Tab/Escape in command completion without breaking IME. Offer an explicit
-shell-style recall scope across saved threads: newest first, deduplicated, restoring
-the current draft on exit (earlier F5). Recall seeds the composer; it never sends.
+Editing a recalled question must end recall mode; otherwise arrows can replace the edited text. Clicking a follow-up replaces a nonempty draft, while programmatic NSTextView.string assignment does not provide the undo the comment promises.
 
-**Accept:** multiline drafts, edited recalled text, suggestions during runs, undo,
-keypad/modified Return, and CJK composition. No unintended send or data loss.
+Suggested fix: Make suggestion replacement reversible or explicitly confirm it. End recall after user edits and use undo-cooperative shouldChangeText/didChangeText updates.
 
-**Fable status:** #59 gives Linux Ctrl-Return and makes Return never cancel. Open here: programmatic draft replacement bypasses `NSTextView`'s undo (`ComposerView.updateNSView` sets `string`; use `shouldChangeText(in:replacementString:)` + `didChangeText()` — `fable.md` B72), Tab/↑/↓ in slash completion (U8), and persisting the draft and open thread across relaunch (sweep idea).
+Accept: Cover multiline drafts, edited recalled text, suggestions during runs, undo, keypad/modified Return and CJK composition. Verify hasMarkedText routing before consuming composition-confirming Return. No unintended send or draft/attachment loss.
 
-### A24 · P2/M — Linux keyboard and help must match capabilities
+Where: Vervellum/Views/PanelRootView.swift:1108–1129,1370–1397; ComposerView.swift:133. Earlier effort: M.
 
-**Where:** `LinuxPanel`, `GTK.observeKeys`, shared command help.
+### A28 · History keyboard model beyond the Delete control
 
-Help advertises macOS-only actions; history/settings/copy print apologies, follow-ups
-are inert, and Return during a run invokes Stop. Verify whether the bubble-phase
-controller sees Return before GtkTextView consumes it on supported GTK releases.
+Usability: speed, convenience, clarity — important
 
-Generate platform-capability help; add Ctrl-Return, a dedicated Stop shortcut,
-clickable follow-ups, and GTK clipboard support through the platform abstraction.
-Earlier G4's remaining parity items—settings, history, retry—belong in A30/A31,
-not another persistence backend.
+Labeled, hover-free Delete controls arrive through parallel #146; that finding is
+not duplicated here. What remains of A28: deletion undo and confirmation; focus the
+history search field when History opens and restore composer focus on exit; ↑/↓
+result navigation and Return to open, without intercepting composer editing keys;
+Delete with undo from the keyboard; separate row-action semantics; Open and the
+destructive Delete as distinct, labeled actions in the accessibility tree, not a
+nested hover affordance.
 
-**Accept:** actual GTK key-event tests with IME, Shift-Return, keypad Enter, drafts,
-and a live run. Do not consume unrelated editing keys. Coordinate setup/history with A30.
+Suggested fix: add an undo/confirmation step to history deletion (coordinate with
+archive coordination from A13/A15-era work already shipped); manage focus on
+History open/close; implement list-key handling in `HistoryView` with ↑/↓/Return
+and keyboard Delete.
 
-**Fable status:** Covered in part by #59 (Ctrl-Return; Return never cancels; "Stopped"; Try again; hint follows `submitOnReturn`) and #66 (trail toggle). Remaining: IME (`gtk_text_view_im_context_filter_keypress` before the key controller — B34), clickable follow-ups, clipboard, and a discoverable quit (`vervellum --quit`, a `[Desktop Action quit]`, README — B59).
+Accept: VoiceOver/Orca reading order, focus, source actions, errors, and no-results
+states; keyboard deletion without hover and with undo; controls reachable at larger
+text scale.
 
-### A25 · P2/M — Stable, inspectable evidence cards
+Historical navigation score: 8.0 · 8/8/8 · M.
 
-**Where:** `SourcesView`, `MarkdownText`, Linux Pango/panel rendering.
+Earlier effort: M.
 
-Hover expands summaries and moves rows; keyboard users cannot reach the summary-only
-caveat. Linux shows neither summary nor caveat. Grouped answer citations open only
-the first source; the macOS tooltip string is built but unused.
+Escape refinement: while the history query is nonempty, first clear it; only the next Escape closes History. The panel monitor currently intercepts Escape before the responder chain, and backOut cannot see the view-local query. Locations: PanelController.swift:312–324; PanelRootView.swift:1043–1075.
 
-Use explicit disclosure or a fixed-size source inspector. Expose every grouped
-source, domain/date, exact retrieved snippet, and “Search summary — not the full
-page.” A citation title/snippet popover may anchor to a source row when inline-link
-anchoring is impractical (earlier D5/V3); it still needs keyboard activation. A fixed,
-always-visible snippet line plus explicit disclosure is another option.
-Opening several tabs should never be an implicit group action.
+### A35 · Close the page-reader DNS boundary
 
-**Accept:** keyboard/screen-reader inspection; hover never changes transcript height;
-group citations expose all sources. Preserve numeric ownership from A01.
+Bugs — important
 
-**Fable status:** Fable adds to the inspector: a multi-source marker `[2, 5]` links only to the first source and the tooltip `MarkdownText.mask` builds is never rendered — one chip per number is the smaller change (B86); a click on `[3]` should reveal source 3 in the panel with ⌘-click opening it (A64).
+Literal private addresses are checked, but a public-looking hostname can resolve into private space. SECURITY.md already records this limitation; bounded page fetching alone does not satisfy the earlier hostile/private-destination acceptance requirement.
 
-### A26 · P2/M — Scale all evidence and wrap crowded rows
+Suggested fix: Design a credential-free connection policy that validates resolved destinations and pins the validated address while preserving Host and TLS identity. Revalidate every redirect; a one-time lookup followed by an unpinned URLSession request does not prevent rebinding.
 
-**Where:** `PanelTheme`, `FindingsView`, `SourcesView`, composer geometry.
+Accept: Preserve the explicit-user-pasted-private-URL policy, byte/time/MIME limits, no script execution and the untrusted-evidence boundary. No broader SSRF guarantee before those tests exist.
 
-Text scale affects the answer but not most evidence, questions, controls, or composer.
-The verdict/citation HStack cannot wrap. Composer height uses the preferred width,
-not the actual clamped window width.
+Where: Sources/VervellumKit/Core/Research/PageReader.swift; SECURITY.md:98–104. Earlier effort: L.
 
-#50 already records actual-width composer measurement; verify clamped layouts after
-it lands. Apply a consistent reading scale to meaningful text, wrap citation chips
-and long metadata, and measure remaining geometry. Essential information must not depend on tiny
-secondary labels.
+### A38 · Authenticate distribution and bound update downloads
 
-**Accept:** minimum width, 140% text, long model/domain/date labels, RTL/CJK, many source
-chips, and short displays without clipped controls or overflowing content.
+General issues — important
 
-**Fable status:** #66 scales the Linux thread with one CSS rule (composer and header stay at system size). macOS evidence scaling (V3) still open; see A60 for the six-step scale.
+Releases are ad-hoc signed; updates authenticate neither downloaded bytes nor Team ID, and size is checked only after download. Signing needs maintainer-owned credentials.
 
-### A27 · P2/M — Adaptive contrast and accessible motion
+Suggested fix: adopt Developer ID and notarization, verify signature/Team ID before offering an update, and enforce byte/time caps while downloading. GitHub asset redirects require a separate bounded credential-free policy, not relaxed provider authorization rules.
 
-**Where:** macOS theme/background/panel/caret; Linux Pango colors/styles.
+Accept: never present an unauthenticated artifact as verified. Keep unsigned-release and reset-Accessibility-grant limitations explicit. A future apt channel needs signed repository metadata. Denied-Keychain diagnosis is S23.
 
-Fixed accents/verdict colors, compounded tertiary opacity, a black-only scrim, and
-small hard-coded Linux text need contrast measurements. Reduced Transparency still
-selects blur, with no explicit opaque fallback. Motion preferences are ignored.
+Where: release workflows; Sources/VervellumKit/Core/Updates/; Vervellum/Updates/. Earlier effort: L.
 
-Add semantic light/dark/high-contrast palettes and an opaque fallback. Observe
-accessibility changes live; reduce panel, disclosure, and caret motion when requested.
+### A63 · Redact pasted text
 
-**Accept:** measured contrast over bright/dark content and Adwaita themes; live Reduce
-Transparency/Reduce Motion changes; meaning remains readable without color. GUI QA
-is required before claiming an aesthetic improvement.
+Bugs — important
 
-**Fable status:** Fable measurements to fold in: `tertiaryText` is `Color.secondary.opacity(0.62)`, about 2:1 for the smallest text — use `.tertiaryLabelColor`, which also honours Increase Contrast (B79); fixed verdict RGB values are used as *sentence* colour for notices and failure text, not only for glyphs, and fail light-mode contrast (B80); the accent `#FF8A4C` measures about 2.3:1 on a light ground (A60 has the numbers).
+Only Accessibility-captured text is redacted; ⌘V goes straight through the composer,
+and a `.env` line pasted in a hurry is exactly the case `SecretRedactor` exists
+for.
 
-### A28 · P2/M — Accessible history actions and progress
+Suggested fix: route paste through the same redaction and the same banner as the
+selection path, building on A07 (redact before truncation, before display); keep
+plain prose untouched.
 
-**Where:** `HistoryView`, headers, finding accessibility, status presentation.
+Accept: a pasted key is replaced and the banner names the count; redaction is
+visible before Return, never applied silently on send; no false positives beyond
+`SecretRedactor`'s documented conservative bias.
 
-History nests a hover-only Delete button inside Open. Icon actions rely on help;
-combined finding labels may hide reasoning/actions. Progress has no stable live
-announcement.
+Earlier effort: S.
 
-Separate row actions, label contextual menus, add deletion undo/confirmation, focus
-history search on opening, and restore composer focus on exit. Add ↑/↓ result
-navigation, Return to open, and Delete with undo (earlier F8), without intercepting
-composer editing keys. Announce stage changes, not streamed tokens.
+### A77 · Return activation after alerts
 
-**Accept:** VoiceOver/Orca reading order, focus, source actions, errors, no-results
-states, and keyboard deletion without hover. Keep controls reachable at larger scale.
+Bugs — important
 
-### A29 · P2/M — Render common research Markdown correctly
+Update and Accessibility alerts activate the agent and do not reliably hand activation back. The update alert defaults to Download.
 
-**Where:** shared `MarkdownParser`, both renderers.
+Suggested fix: Keep background update discovery nonmodal; use modal interaction only for explicit Check now and yield activation afterward.
 
-Fence closers ignore marker type/length; ATX headings lose literal trailing `#`
-(`## C#`). Tables are unsupported. Linux loses nested inline emphasis and wraps code
-inside the same label.
+Accept: An alert must never leave Vervellum frontmost without a window.
 
-Heading closers and tables are already recorded in #22/#32; do not duplicate those
-patches. Fix matching fences with tests, then verify pending renderer parity. Add
-only missing horizontal overflow handling, code-copy actions, and nested Linux
-inline formatting. Keep citations literal in code and render partial constructs
-during streaming.
+Where: Vervellum/Updates/UpdateChecker.swift; Vervellum/App/AppDelegate.swift. Earlier effort: M.
 
-**Accept:** mismatched/long fences, C# headings, comparison tables, nested emphasis,
-long code, and every incomplete-stream prefix. No dependency or HTML renderer added.
+### A77b · Refresh the remembered foreground application
 
-**Fable status:** #62 renders Linux emphasis that spans a citation; #56 keeps citations literal in code on both platforms. Open: range citations `[1-3]`/`[1–3]` are neither rendered nor flagged (A62), and tables are #32's.
+Bugs — important
 
-## Reliability and provider compatibility
+The restore target is captured only on the first show. Clicking through another app while the panel stays open leaves it stale.
 
-### A09 · P2/M — Show what each search actually did
+Suggested fix: Refresh the target when the panel yields key status to another application.
 
-**Where:** runner, research models, progress views, answer context.
+Accept: Escape returns focus to the app actually left, without unrelated activation changes.
 
-Plans are passed as `searches_run` even when requests fail. Mixed failure is hidden;
-progress counts planned rather than successful searches. #48 already records live
-completion counts; do not implement another counter. Add persisted per-query
-pending/running/succeeded/failed state, safe errors, elapsed time, and contribution.
-Show labeled success/failure glyphs beside planned queries in the trail (earlier V4).
+Where: Vervellum/Panel/PanelController.swift:104–109,338–360. Earlier effort: S.
 
-**Accept:** “2/4 succeeded” and incomplete-evidence notice for partial failure; only
-successful searches are described as run to the model. Test cancellation/migration.
-Keep execution sequential until MCP concurrency support is established.
+### A77e · Keep selection lookup off the summon path
 
-**Fable status:** `fable.md` U1 and B50 agree: per-query state, sources published after each search, an elapsed clock, and a Plan → Search → Answer → Assess timeline while running. #48 counts completed searches; the rest is still open.
+Performance problems, stuttering, and jank — important
 
-### A10 · P2/M — Explicit provider and MCP capabilities
+AX selection reads can block the main thread through multiple messaging timeouts before the panel appears.
 
-**Where:** `SearchMCPClient`, planner schema validation, provider settings/client.
+Suggested fix: Set a short AX messaging timeout, show the panel first and deliver the selection later through the existing platform callback.
 
-Only two z.ai tool names and one listing page are supported. Argument keys are
-validated, not types/enums. Required temperatures exclude some reasoning endpoints.
-Document current support; add explicit tool selection, bounded pagination, supported
-schema validation, and provider capability presets. Do not infer safety from names.
+Accept: A hung foreground app delays the selection, not panel interaction. Preserve opt-in capture, redaction-before-display and no automatic submission.
 
-**Accept:** real-shaped fixtures for tool pages/schema/types/enums and temperature
-capabilities, without live keys. Broaden product claims only after support exists.
+Where: Vervellum/Selection/SelectedTextReader.swift; Vervellum/App/AppDelegate.swift. Earlier effort: M.
 
-**Fable status:** Covered in part by #55 (tool resolved by shape, advertised names in the error, README wording) and #54 (retry without `temperature`/`response_format` on 400, remembered per client). Remaining: bounded pagination, schema type/enum validation, explicit provider presets (U12: OpenAI, z.ai, OpenRouter, Groq, Ollama, LM Studio, llama.cpp) and a "searches per question" setting (`maxSearches` is already plumbed end to end).
+## Nice-to-have
 
-### A11 · P2/M — Preserve source URLs and result boundaries
+### A06 · Reserve model output in stage budgets
 
-**Where:** `SourceHarvester`, `EvidenceExtractor.hits(inParagraph:)`.
+Bugs — nice-to-have
 
-Structured URLs undergo prose punctuation stripping and can contain userinfo.
-Exact-string dedup keeps tracking/fragment variants. Neighboring link-line snippets
-can overlap and assign one result's context to another.
+Input budgeting now charges attachments and rejects an impossible combined answer
+context before planning, but stage prompt assembly can still consume the model's
+whole context allowance without reserving measured space for the generation itself.
+A provider may therefore truncate or reject an otherwise valid planning, answering,
+assessment, or revision request.
 
-Separate structured validation from prose cleanup; reject credentials, preserve
-legitimate URL punctuation, define conservative dedup keys, and partition prose into
-non-overlapping result items.
+Suggested fix: define a measured output reserve for each generation stage, subtract
+it from the stage's available input budget in `ResearchContext`, and cover exact
+boundaries, Unicode, long history, and zero-history cases without silently cropping
+current input.
 
-**Accept:** results without blank lines, query punctuation/parentheses, userinfo,
-near-duplicates, and distinct pages. Keep extraction permissive without fabricating
-which text belongs to which source.
+### A07 · Carry capture redaction and truncation metadata
 
-**Fable status:** Covered in part by #61 (`normalized(_:trimmingPunctuation:)`; structured fields validated only; tests for `…_(planet)`). Remaining: userinfo rejection, conservative dedup keys, non-overlapping prose partitioning.
+Bugs — nice-to-have
 
-### A18 · P2/M — Truthful configuration and shortcut outcomes
+`SelectedTextReader.trim` reduces selection capture to a bare `String`, so the
+composer cannot distinguish ordinary input from an Accessibility value that was
+length-capped or changed by `SecretRedactor`, and redaction still sees only the
+already-trimmed text. The user therefore cannot tell which safety transformation
+occurred, while future redaction rules must reason about shortened input.
 
-**Where:** `JSONFileSettingsStore`, `ShortcutInstaller`, macOS hotkey/provider UI.
+Suggested fix: return a capture result that carries truncation and redaction
+metadata, redact the bounded captured value before display truncation, and show a
+concise composer notice without changing the opt-in, never-auto-submit, never-log
+behavior.
 
-Linux external JSON edits never reload and stale shortcut bookkeeping can overwrite
-them. Shortcut writes/Carbon registration failures are ignored. Keychain Clear says
-success despite discarded deletion errors.
+### A10 · Provider and MCP capability remainder
 
-Add explicit reload/validation before a full settings editor, preserve external
-settings during bookkeeping, check every write/registration result, and surface
-conflicts/recoverable failures. Expose a user-chosen Linux summon accelerator through
-setup/CLI instead of only the default installer path (earlier F11). Preserve manual
-changes unless the user explicitly replaces them. Do not add another settings file.
+General issues — nice-to-have
 
-**Accept:** external edits while running, read-only files, failed dconf writes,
-shortcut conflicts, and failed Keychain deletion never report false success.
-Custom accelerators still use the desktop GApplication action, not an in-process grab.
+Known-operation MCP tool resolution, schema-backed SearXNG/Kagi and the remembered
+optional-parameter retry exist. Remaining: bounded `tools/list` pagination
+(`nextCursor`); argument validation checks names only; type and enum checking
+against the advertised schema is still missing; explicit user-selected/recognized operation support; never infer safe operations
+from descriptions or a query-shaped schema. Provider presets belong to A34,
+search-count settings to A33, image fallback to S33.
 
-**Fable status:** Also open here from Fable: `HotkeyRecorder` accepts Shift-only and Option-only chords, registering a global hotkey that steals every capital S system-wide (B91 — require ⌘, ⌃ or ⌥ in the recorder and in `HotkeyBinding.isValid`, and refuse a stored Shift-only binding at registration); a Carbon registration that returns `false` is silently dead (B27 — surface it in Settings ▸ Shortcuts and the status menu); `HotkeyRecorder` accepts ⌘W/⌘Q/⌘C as the global hotkey (B75 — reject bare-⌘ editing chords); `ShortcutInstaller` records success when `gsettings set` fails and the first GUI launch re-installs over a changed binding (B41/B42); the Providers pane reloads stored values on every tab selection, discarding unsaved edits (B76 — load once per presentation).
+Suggested fix: paginate tool discovery with a bound; validate argument types/enums
+against the fetched schema in `SearchBackend.validate`; require explicit operation selection before supporting an unknown MCP tool.
 
-### A22 · P2/M — End-to-end deadlines and cancellation tests
+Accept: real-shaped fixtures for tool pages, schema, types/enums, temperature and
+vision capabilities without live keys; product claims broaden only after support
+exists.
 
-**Where:** `Core/Research/HTTPTransport.swift`.
+Historical explicit-adapter score: 8.3 · 9/9/7 · S.
 
-Ten-minute checks happen only on arriving chunks and start after the response head;
-they are not an end-to-end deadline. Early-return cancellation relies on continuation
-lifetime. Use an independent monotonic per-exchange deadline to cancel the URL task.
-Give small `completeJSON` plan/assessment calls a separate, tighter budget than the
-stream (earlier P4 suggested 120–180 seconds, subject to provider measurements).
-A wedged JSON call should not inherit the full ten-minute streaming allowance.
+Earlier effort: M.
 
-**Accept:** no headers, idle body, trickle/keepalive, cancellation before registration,
-early matching MCP response, refused redirects, and producer caps. Inject clocks/
-transport at the service boundary or use loopback fixtures; never live providers.
+### A18b · Preserve unsaved provider-pane edits
 
-**Fable status:** #64 gives non-streaming calls the 600 s deadline as their per-request `timeoutInterval` and keeps the 120 s idle timeout for streams — the reverse of the "tighter budget" above, because a non-streaming call is *silent* until the model finishes and a local model on a large evidence block legitimately takes minutes; `NSURLErrorTimedOut` now maps to a message that names the model, not the connection. The independent monotonic per-exchange deadline and the fixture matrix are still open.
+Usability: speed, convenience, clarity — nice-to-have
 
-### A39 · P2/S — Fail packaging when dependency discovery fails
+ProvidersView.load runs on every onAppear and clears pending key entries, deletions and catalogues. Tab-switch loss remains a GUI hypothesis until reproduced.
 
-**Where:** `packaging/build-deb.sh`.
+Suggested fix: Load once per presentation, or preserve and explicitly resolve dirty edits before reloading.
 
-Suppressed `dpkg-shlibdeps` failures trigger a minimal GTK fallback, potentially
-publishing missing dynamic dependencies. Fail packaging with safe diagnostics instead.
+Accept: Type an endpoint/key, switch panes and return; verify retention and cancellation without touching real secrets.
 
-**Accept:** deliberately unavailable/failed dependency discovery produces no release
-package; supported Ubuntu builds still generate and verify all dependencies.
+Where: Vervellum/Settings/ProvidersView.swift:204,536–549. Earlier effort: S.
 
-### A40 · P2/M — Behavior coverage and falsifiable documentation
+### A18c · Reload Linux settings and expose persistence failures
 
-**Where:** tests, CI, README/PLAN/SECURITY/PRIVACY/CICD.
+General issues — nice-to-have
 
-Add runner fixtures, cancellation/deadline tests, rendering-safety coverage, a GTK/
-Xcode smoke matrix, long-thread profiling, and accessibility checks. #28 begins GTK
-lifecycle coverage; it does not replace Wayland or real-desktop testing.
+Open #128 preserves sequential external edits, but cached reads do not live-reload. A damaged or unwritable settings file is reported only on stderr; unsaved in-session changes are not a successful disk save.
 
-Correct these concrete overclaims: “every claim” versus eight findings; structurally
-impossible model URLs versus actual rendering; summary labels “on every source”;
-generic MCP support; Linux key precedence; universal redirect refusal; three workflows
-beside four rows. See A01/A10/A17/A25/A38 for implementation dependencies.
+Suggested fix: Expose reload/validation and persistence-error state through the settings service, for example on window focus. Apply valid settings without requiring A30's form first; keep externally repaired JSON authoritative and preserve unreadable bytes.
 
-**Accept:** docs describe tested guarantees and remaining limits. New tests isolate
-settings/secrets/history and exercise behavior, not just optimistic code comments.
+Accept: Read-only files and external edits must not produce false saved-state claims. No second settings file. Environment-key overrides remain explicit.
 
-**Fable status:** #55 corrected the generic-MCP claim, #66 made the PRIVACY text-scale claim true. Verified documentation drift still open: SECURITY.md, PRIVACY.md, README and PLAN state the Linux key ladder as keyring → environment → file while `LinuxSecretStore` tries the environment first (B101); SECURITY.md says every outbound request goes through the one transport while the update check and download use a plain `URLSession` (B102 — scope the three rules to provider calls and say so); PRIVACY.md calls the update User-Agent a bundle identifier (it is name/version) and describes logging in macOS-only terms (B107); ICON-CREDITS.md lists 19 SF Symbols of the 32 in use (B106); `0.1.0` is hard-coded in README's install line and the build examples outside the release-bump marker (B105); `/help` on Linux advertises ⌘ shortcuts and Settings the GTK panel lacks — split the platform rows of `ComposerCommand.helpText` (B103); the release workflow installs `desktop-file-utils` but never validates the entry, and `linux.yml`, which does, does not run for tags (B104). Also: README promises Up/Down recall and searchable threads on Linux (B56), `CICD.md` says three workflows and lists four (B57), the digest-pin claim (A49), and the `MarkdownParserTests` emphasis test that cannot fail for its stated reason (B69) plus the erase tests that never create a `.bak` (B69).
+Where: Sources/VervellumKit/Core/Platform/SettingsStore.swift; Sources/VervellumKit/Linux/LinuxEnvironment.swift:141. Earlier effort: M.
 
-## Product extensions after the foundations
+### A20 · Streaming render reuse remainder
 
-### A30 · P2/L — Native Linux setup and history
+Performance problems, stuttering, and jank — nice-to-have
 
-Build a settings/setup window over existing stores: presets, masked keys, explicit
-Save, backend warnings, validation, and an optional connection check that discloses
-what leaves the machine. Add searchable history, reopen/delete, and thread export.
+Coalescing, Equatable turn views and SelectableText exist. Open #156 preserves
+GTK widgets during answer-only growth; stage, source and notice changes still
+rebuild the thread. Native MarkdownBody still parses the growing answer per
+evaluation, and composer measurement repeats when its inputs have not changed.
 
-**Accept:** clean install without secret-tool, unavailable keyring, no search key,
-`/direct` discovery, and settings reload. No new persistence format. Build on A17/A18.
+Suggested fix: Profile block-level parsing reuse, terminal GTK row identity and
+measurement memoization. Measure queue depth before pre-enqueue coalescing, and
+repeated Source.domain parsing before caching with correct URL invalidation.
 
-### A31 · P2/M — Retry only the failed assessment
+Accept: 50-turn threads, variable-height AppKit rows, long pastes and bursty
+streams retain responsive Stop, stable selection, exact final text and bounded
+queues. Dispatch stays in front ends, never MainActor in Core.
 
-Retain answer/evidence and offer “Retry claim check” separately from “Research again.”
-Snapshot settings/model provenance and label stale evidence. Track retry lineage so
-an old failed row does not keep offering duplicate retries forever (earlier B6).
-Distinguish consumed retry from an intentional new research request. Add GTK retry
-controls through the runner, not new networking in the view. Add local ⌘R for the
-eligible failed turn (earlier F13), coordinated with #33's Ask Again action.
+Where: Vervellum/Views/ComposerView.swift:161–173; PanelRootView.swift:428;
+Sources/VervellumKit/Linux/LinuxPanel.swift:547–561,628–630. GTK follow-up: 1 day
+(S13); measurement: 2–3 hours (S14). Historical cache/tail-renderer options:
+6.0 · 7/5/6 · S; 4.7 · 5/4/5 · M; GTK reuse 5.0 · 5/5/5 · M;
+measurement 4.3 · 4/5/4 · S. Earlier effort: M.
 
-**Accept:** assessment retry makes no search/answer calls, never overwrites a newer
-answer, and preserves failure context. Old-row retry state stays correct after
-append/reload. Requires clear stage state from A04/A05/A15.
+### A23a · Complete commands with Tab and broaden recall
 
-**Fable status:** The failure path is #57: when only the assessment fails the turn completes with an `assessmentUnavailable` notice instead of failing a visible answer. The "Retry claim check" action itself is still open; #33's Ask Again is the other half.
+Usability: speed, convenience, clarity — nice-to-have
 
-### A32 · P3/M — Evidence lens
+Arrow completions exist. Tab acceptance and shell-style recall across saved threads remain proposed.
 
-Click a claim to highlight its assessed sentence and sources. Offer uncertain-only
-filtering, a compact verdict distribution, and “What would change this answer?”
-follow-ups. Use structured sentence anchors, not fuzzy string matching. Reuse verdict
-distributions in History rows and the collapsed trail (earlier D3/V2): dots or a
-compact stacked bar must include accessible counts/labels and incomplete status.
-Add the reverse direction (D5): selecting a source reveals the sentences citing it,
-using a pure reverse index over existing numeric citations, not another model call.
+Suggested fix: Accept a visible slash completion on Tab. Offer newest-first, deduplicated cross-thread recall with the draft restored on exit; recall seeds, never sends.
 
-**Accept:** contradictions stay visible; associations are auditable; no invented
-numerical confidence. Start from A25's accessible source inspector.
+Accept: Do not conflict with IME or A65's Tab-to-actions traversal. Preserve edited text and attachments.
 
-### A33 · P3/M — Preview plans and choose research depth
+Historical completion score: 6.0 · 6/6/6 · S.
 
-Offer Quick/Standard/Deep with explicit search caps and stage-model choices. Allow
-query inspection/editing for an opted-in deep run. Show measured timings and
-provider-reported usage; do not invent prices. Evaluate
-`stream_options: {include_usage: true}` behind explicit provider capabilities (earlier
-G2). Verify z.ai support; do not assume every compatible gateway ignores unknown
-parameters. Usage-only frames must not alter answer completion.
+### A23b · Restore the draft and open thread after relaunch
 
-**Accept:** default asking remains one step, caps are enforced, and extra calls require
-explicit depth selection. Test unsupported/absent usage and malformed usage frames;
-never estimate missing counts as measured. Use actual outcome tracking from A09.
+Missing features — nice-to-have
 
-### A34 · P3/M — Local presets and per-stage models
+A dismissal preserves the draft, but quit/crash/relaunch does not restore the draft and selected thread.
 
-Test Ollama/llama.cpp endpoints, supported model discovery, context/output limits,
-and temperature capabilities. Allow separate planner and assessor models.
+Suggested fix: Persist draft plus open-thread identity through existing preferences/archive metadata, with a clear history-off privacy policy.
 
-**Accept:** local-only/direct versus remote research is unmistakable. Local inference
-must not imply remote web-search privacy. Reuse A10/A30 capability/settings work.
+Accept: Never resurrect deleted threads or silently send restored drafts. Preserve attachments only under their existing retention policy.
 
-### A35 · P3/L — Bounded full-page evidence
+Historical score: 6.3 · 7/6/6 · S.
 
-Fetch a few decisive pages only after designing isolated credential-free transport,
-SSRF/redirect controls, byte/time/MIME limits, extraction, provenance, and untrusted
-content boundaries. Distinguish retrieved quotes from search summaries.
+### A24 · Linux IME routing and a Stop shortcut
 
-**Accept:** hostile/private-network URLs cannot trigger unsafe fetches; no arbitrary
-model-directed browsing or HTML execution. Security tests precede quality tuning.
+Usability: speed, convenience, clarity — nice-to-have
 
-### A36 · P3/S–M — Small delights without another model call
+Return-never-cancels, stopped/retry feedback and preference-sensitive submit hints
+exist. Clipboard, follow-up links and waiting questions are covered by #151–#153;
+platform help by #143. Remaining: route IME confirmation before consuming Return
+and provide a dedicated local Stop shortcut.
 
-Independent candidates, each with a narrow acceptance target:
+Suggested fix: Verify gtk_text_view_im_context_filter_keypress routing and add the
+local shortcut without an in-process global grab. Keep help accurate.
 
-- **Copy feedback:** “Copied,” plus answer-only/evidence-inclusive choices. Explain
-  empty answer-only copies (B7); #26 already preserves useful failed-turn exports.
-- **Pocket finding:** pin one compact claim/source card while working elsewhere.
-- **Evidence receipt:** export question, model, date, verdicts, limits, and sources.
-- **Reading bookmark:** return to the last inspected source within the session.
-  The earlier queue deferred persisted scroll offsets because reopened threads often
-  target the newest answer; revisit archival position memory only with user evidence.
-- **Challenge this:** visibly seed a disconfirming follow-up; never auto-send it.
-- **Quiet completion:** #36 already records macOS status/sound. Verify opt-in,
-  panel-closed behavior, and accessibility; do not implement a second Mac signal.
-  Add an optional Linux desktop completion notification when its window is hidden
-  (G8), without leaking answer text on the lock screen or stealing focus.
-- **Planning cue:** an optional indeterminate shimmer while the plan is pending
-  (earlier F10), with a static Reduce Motion alternative; never a fabricated ETA.
+Accept: Real GTK IME confirmation, Shift-Return, keypad Enter, drafts and live runs;
+no unintended send, cancellation or unrelated editing-key interception. Quit is A76.
 
-Use existing turn data, accessible restrained motion, and honest verdict styling.
-Coordinate draft preservation (A23), reader intent (A19), and export completeness
-(#26/A46). Pending #33/#34 already cover elapsed time, Ask Again, and example seeds.
+Earlier effort: M.
 
-**Fable status:** Fable candidates worth adding, judged on-thesis: **thread title from the planner's reading** (D1 — free, replaces the 60-character truncation once the first turn lands); **disagreement badge** (D2 — a small `arrow.triangle.branch` in the collapsed trail when any verdict is contradicted or mixed, tooltip naming the claim); **"why did you search that?"** (D7 — the query's `purpose` on hover of each query row; the data exists); **the "summary, not the full page" caveat as a tiny magnifier chip** on the source row (D12). Judged as drops, with agreement: `/about` ASCII art and `/coin` (D10/D11), the all-supported seal (D9), source-age tint (D3), per-block fade-in (D8), a Notification Center banner with answer text (D5).
+### A25 · Evidence card stability and grouped sources
 
-### A37 · P3/L — Compare research across time
+Visual issues and layout problems — nice-to-have
 
-Start with manual “Research again and compare.” Preserve old evidence and distinguish
-source additions/removals, changed verdicts, source churn, and changed conclusions.
-Only then consider scheduled watches with explicit budgets, retention, provider
-disclosure, and notification controls.
+The `SourcePreview` popover with its permanent summary/page-read caveat and
+domain/date rows exists. Remaining: revealing a summary still changes row height,
+moving later sources under the pointer and hiding the summary from keyboard users
+(S19; explicit disclosure or a stable-size inspector, with keyboard activation);
+a grouped citation `[2, 5]` opens or exposes only the first source; expose every
+grouped source (one chip per number is the smaller change, B86); opening several
+tabs must never be an implicit group action.
 
-**Accept:** old threads are never silently re-sent; comparison remains auditable;
-a refreshed source list is not falsely described as a changed answer.
+Suggested fix: fixed-height rows with explicit disclosure; keyboard-activatable
+preview; per-number chips that each resolve to their own source. Show the browser
+glyph on keyboard focus, not only hover. Put the snippet/caveat in the accessibility
+value and a permanent summary/page-read tag beside the number.
 
-## Additional tasks retained from the earlier analysis
+Accept: keyboard and screen-reader inspection of every source's domain, date,
+snippet and "Search summary; not the full page" caveat; hover never changes
+transcript height; group citations expose all members; the app-owned numbered-citation
+rule is preserved.
 
-### A43 · P2/M — Bounded transient retries (G1)
+Where: Vervellum/Views/SourcesView.swift:181–197. Effort: half a day (S19). Historical score: 7.7 · 7/7/9 · S.
 
-**Where:** `Core/Research/ResearchRunner.swift`, `ChatCompletionsClient.swift`.
+Earlier effort: M.
 
-Offer at most one bounded backoff retry for transient planning/assessment failures,
-including rate limits and dropped connections. Keep answer streaming fail-fast:
-blind replay duplicates prose and charges. Respect cancellation and stage deadlines;
-classify only sanitized status/transport outcomes, never provider error text.
+### A26 · Wrap crowded evidence rows
 
-**Accept:** injected-clock tests for retryable versus permanent failures, attempt
-limits, cancellation during backoff, and no automatic streamed-answer replay. Keep
-retry progress and any additional provider calls visible.
+Visual issues and layout problems — nice-to-have
 
-**Fable status:** Sweep addition: an offline gate before spending a call, and a 429 `Retry-After` countdown instead of "try again" — both classify sanitized transport/status outcomes only.
+The type funnel scales through `Font.at`/`panelTextScale`, the composer is
+measured against the actual clamped width, and #136 reserves the running-controls
+width. Remaining: the verdict-label-plus-citation-chips row in `FindingsView` still
+cannot wrap; many source chips at narrow widths or 140% text have no wrapping
+strategy (B87/S20).
 
-### A44 · P2/M — Machine-readable CLI output (G3/F9)
+Suggested fix: adaptive rows (wrapping layout or a chip-flow container) that
+preserve every label and action.
 
-**Where:** `LinuxApp.runHeadless`, a portable transcript encoder in Core.
+Accept: minimum panel width, 140% text, long model/domain/date labels, RTL/CJK,
+many source chips, and short displays show no clipped controls or overflowing
+content; essential information never depends on tiny secondary labels.
 
-Add `vervellum --json` with a versioned output contract for question, answer, findings,
-sources, notices, completion/failure state, and partial output. Keep progress on
-stderr and JSON alone on stdout; `StandardErrorLog` already anticipates this split.
+Where: Vervellum/Views/FindingsView.swift:52–60. Effort: half a day (S20).
 
-**Accept:** success, direct, partial failure, cancellation, Unicode, and empty-result
-fixtures parse as one document with meaningful exit status. Never serialize keys or
-foreign errors. Reuse #26's evidence/completion rules.
+Earlier effort: M.
 
-**Fable status:** #61 keeps the answer in a failed transcript and marks a stopped one, which the JSON contract should mirror (`completion` state alongside partial text).
+### A27 · Measured contrast and live accessibility observation
 
-### A45 · P2/S — Escape the revoked-selection-grant loop (G7)
+Aesthetics and theming — nice-to-have
 
-**Where:** macOS selection alert and `AppDelegate`/`PanelController` orchestration.
+Themeable palettes, semantic text colors and some Reduce Motion routes exist. Remaining: current presets need fresh contrast measurements. Earlier estimates were about
+2:1 for compounded tertiary text and 2.3:1 for #FF8A4C on a light ground, not fresh
+measurements of every current theme. Verdict-colored sentences also need checking. Pango's fixed secondary #7a7a7a
+(PangoMarkup.swift:25) may miss contrast on dark Adwaita; this is unmeasured.
+Evaluate theme-derived foreground alpha, not another fixed compromise.
+Verify an opaque Reduce Transparency fallback, not merely the absence of Liquid
+Glass, and observe transparency changes live; the streaming caret repeats
+indefinitely and some transitions bypass the reduced-motion routes `SourcesView`
+already uses (S25).
 
-Offer “Open without selection” after grant loss, with an explicit remembered fallback
-until the user chooses selection again. Do not re-prompt on every summon or silently
-request Accessibility. Explain that ad-hoc updates reset the grant; A38 is the signing
-fix, not an excuse to trap the user in alerts.
+Suggested fix: measure presets in light/dark/high-contrast and correct failures
+with semantic or scheme-aware colors; observe the accessibility notifications live;
+route all panel motion through the shared reduced-motion gate, with a static caret
+style.
 
-**Accept:** revoked/denied/restored grants, subsequent summons, and preference resets
-are predictable. The core summon path remains permission-free; no captured text is
-sent or retained by the fallback.
+Accept: measured contrast over bright/dark content and Adwaita themes in both
+appearance schemes; live Reduce Transparency/Reduce Motion switches; meaning stays
+readable without color; GUI QA before claiming any aesthetic improvement.
 
-### A46 · P2/M — Export complete threads (F6)
+Where: Vervellum/Views/PanelTheme.swift:171–174; TurnView.swift:228–241,264,341; PanelRootView.swift:300,334. Effort: contrast 1 day (S24), motion half a day (S25). Historical contrast: 8.3 · 8/8/9 · S; motion: 8.0 · 7/9/8 · S; scheme tuning: 6.7 · 6/6/8 · S.
 
-**Where:** `TranscriptFormatter`, macOS command/save-panel orchestration, Linux UI/CLI.
+Earlier palette notes: mixed about 2.1:1 and supported about 2.9:1 on light grounds; Linux used #c4630f, #217a4a and #9a6a10 as candidate light-safe hues. Also inspect dark card contrast, a light-mode scrim and an opaque reduced-transparency tint. These are historical estimates/design hypotheses, not fresh measurements.
 
-Add whole-thread Markdown export, exposed through ⌘S and `NSSavePanel` on macOS.
-Activate the agent before showing the save panel; restore focus afterward. Export
-questions, evidence, findings, limitations, and per-turn completion state. Numbered
-sources must remain unambiguous across turns. Reuse #26 rather than copying its logic.
+Earlier effort: M.
 
-**Accept:** multi-turn source-number collisions, failures with partial prose,
-non-ASCII paths, cancellation, denied writes, and history disabled. Export only on
-explicit request; preserve existing archive and secret-store boundaries.
+### A29 · Match Markdown fences and complete code-block actions
 
-**Fable status:** `fable.md` F7/U6 add: Markdown export with `[n]: url` reference definitions written by Vervellum from the list it owns (not a relaxation of the citation rule), copy one citation, copy a code block, ⌘⇧C for the last answer.
+Visual issues and layout problems — nice-to-have
 
-### A47 · P3/M — Summarize unsettled claims with `/digest` (D4)
+Tables, ATX closing-sequence handling and literal citations in code exist. Fences
+still close on a three-backtick or three-tilde prefix without matching the
+opener's marker and length. Native code already scrolls horizontally; Linux
+long-line handling and code-copy actions remain.
 
-**Where:** shared command/parser, `ResearchContext`, runner, both front ends.
+Suggested fix: Track the opening marker/length; a closer needs the same marker,
+at least that length and only trailing whitespace. Keep an unterminated remainder
+as code through end-of-stream. Add code-copy actions and Linux long-line handling
+where absent, preserving the native scroll view.
+
+Accept: Mismatched, shorter/longer and nested fences; incomplete streaming prefixes;
+long lines. Align render/parser and citation-code masks. No dependency or HTML
+renderer. Pango nested emphasis is A29a; range citations are A62.
+
+Earlier effort: M.
+
+### A29a · Parse Pango bold-italic delimiter runs correctly
+
+Bugs — nice-to-have
+
+The Pango parser tries `**` before `*`, so `***bold italic***` can pair the wrong run, producing bold literal stars and a trailing asterisk. Native macOS inline Markdown is unaffected.
+
+Suggested fix: Count delimiter runs or prefer the longest delimiter at a shared position. Verify other nested Linux emphasis, not merely emphasis across citations.
+
+Accept: Keep untrusted text escaped and incomplete streaming constructs readable.
+
+Where: Sources/VervellumKit/Linux/PangoMarkup.swift:252–290.
+
+### A30 · Native Linux setup
+
+Missing features — nice-to-have
+
+Linux still needs a settings/setup window: presets, masked keys, explicit Save,
+backend warnings, validation, optional connection checks with provider disclosure,
+and a user-chosen summon accelerator through setup/CLI.
+
+Suggested fix: Build over LinuxEnvironment, SettingsStore, SecretStore and
+ThreadArchive. Reuse A17/A18; do not introduce another format or store.
+
+Accept: Clean install without secret-tool, unavailable keyring, no search key,
+/direct discovery and settings reload work. Backends identify themselves through
+backendDescription. Preserve manually changed desktop bindings unless explicitly
+replaced. Basic history is covered by #154; search is A30a and export A46.
+
+Historical Linux UI parity: 6.0 · 6/6/6 · M. Earlier effort: L.
+
+### A30a · Search the Linux history list
+
+Missing features — nice-to-have
+
+Open #154 supplies saved-thread rows, reopen and deletion, but not a history search
+field. The core search exists and #144 extends its fields.
+
+Suggested fix: Add GTK filtering over ThreadLibrary.search, preserving detached
+session identity and the result completeness required by R06.
+
+Accept: Empty, no-results, live/detached and read-only threads remain navigable.
+No duplicate writers or second archive format; keep any README parity claims
+scoped until this exists.
+
+### A31 · Retry only the failed claim check
+
+Missing features — nice-to-have
+
+The `assessmentUnavailable` failure path and deep auto-regather exist. Remaining:
+an explicit "Retry claim check" action that retains the answer and evidence and
+makes no search or answer calls; snapshot settings/model provenance and label stale
+evidence; retry lineage so an old failed row does not keep offering duplicate
+retries; distinguish a consumed retry from an intentional new research request; ⌘R
+for the eligible failed turn, coordinated with the existing Ask Again action.
+
+Suggested fix: a runner-level assessment-only retry entry point driven from the
+failure card and turn row, with provenance and lineage recorded on the turn.
+
+Accept: assessment retry makes no search/answer calls, never overwrites a newer
+answer, and preserves failure context; old-row retry state stays correct after
+append/reload.
+
+Where: Sources/VervellumKit/Core/Research/ResearchSession.swift:190–231; Vervellum/Views/TurnView.swift:205–212. Effort: 1–2 days (S15).
+
+Earlier effort: M.
+
+### A32 · Evidence lens
+
+Novel, delightful, or quirky ideas worth trying — nice-to-have
+
+Click a claim to highlight its assessed sentence and sources; offer uncertain-only
+filtering. Use structured sentence anchors, not fuzzy matching. Add the reverse
+direction (S26): selecting a source reveals its citing sentences through a pure
+index over existing numeric citations, without a model call or confidence score.
+The distribution bar is A60b; counter-evidence follow-ups are A36d.
+
+Suggested fix: Persist auditable sentence anchors at assessment time and build
+the reverse citation index from validator output.
+
+Accept: Contradictions stay visible; associations are auditable. Start from A25's
+accessible source inspector.
+
+Where: Sources/VervellumKit/Core/Research/CitationValidator.swift;
+Vervellum/Views/SourcesView.swift. Reverse index: 1 day (S26). Historical
+claim/prose linking: 6.7 · 7/4/9 · M. Earlier effort: M.
+
+### A33 · Research depth remainder
+
+Missing features — nice-to-have
+
+Research/direct/deep/agent levels, search caps, the picker, cost lines and
+level-honoring retry exist. Remaining: query inspection/editing for an opted-in
+deep run; provider-reported usage; evaluate `stream_options: {include_usage:
+true}` behind explicit provider capabilities (verify z.ai support; do not assume
+every compatible gateway ignores unknown parameters); surfaced measured timings
+beyond the trace; expose a bounded searches-per-question setting instead of only
+the ResearchRunner.maxSearches constant.
+
+Suggested fix: an editable plan step for deep runs gated on explicit opt-in;
+usage-frame parsing behind a capability flag; timings summarized in the trail.
+
+Accept: default asking stays one step; caps are enforced; extra calls require
+explicit depth selection; unsupported/absent/malformed usage frames are tested and
+missing counts are never estimated as measured; usage-only frames never alter
+answer completion.
+
+Historical presets/search-count option: 5.3 · 6/5/5 · M; usage meter: 5.0 · 6/4/5 · M.
+
+Earlier effort: M.
+
+### A34 · Provider presets and per-stage models
+
+Missing features — nice-to-have
+
+Model discovery via `/models`, the picker and the image capability flag exist.
+Remaining: verified Ollama/llama.cpp compatibility, per-profile context/output
+limits and temperature capabilities; endpoint presets for OpenAI, z.ai, OpenRouter,
+Groq, Ollama, LM Studio and llama.cpp (plus bearer-auth gateways where tested);
+separate planner and assessor models.
+
+Suggested fix: preset list in ProviderSettings feeding the endpoint/model fields;
+per-stage model selection plumbed through the runner's client construction.
+
+Accept: local-only/direct versus remote research is unmistakable; local inference
+never implies remote web-search privacy; reuses A10/A30 capability work.
+
+Historical presets: 6.3 · 6/7/6 · S; per-stage model choice: 6.3 · 6/7/6 · S.
+
+Earlier effort: M.
+
+### A35a · Read a chosen page and recheck its evidence
+
+Missing features — nice-to-have
+
+Automatic bounded reading exists, but the earlier high-ranked idea also proposed a user-selected source fetch followed by re-assessment.
+
+Suggested fix: Offer an explicit read/recheck action over the existing reader and assessment services, without arbitrary model-written browsing.
+
+Accept: Disclose the extra calls. Preserve source numbering, snippet/page-text provenance, budgets and cancellation. A fetched page is marked read only if its text reached the model.
+
+Historical score: 9.3 · 10/8/10 · L.
+
+### A36 · Confirm successful Copy and offer copy formats
+
+Novel, delightful, or quirky ideas worth trying — nice-to-have
+
+Copy has no success feedback. Earlier ideas also requested answer-only, evidence-inclusive and paragraph-with-resolved-sources copies.
+
+Suggested fix: Show a brief accessible Copied receipt only after successful pasteboard write; offer formats over TranscriptFormatter and explain an empty answer-only copy.
+
+Accept: Keep failed/stopped state and app-owned source definitions in evidence-inclusive output.
+
+Where: Vervellum/Views/TurnView.swift:191–200. Feedback effort: 1–2 hours (S28). Historical copy options: 6.3 · 7/6/6 · M; paragraph copy 6.0 · 6/5/7 · S.
+
+Earlier effort: S–M.
+
+### A36a · Pin a pocket finding
+
+Novel, delightful, or quirky ideas worth trying — nice-to-have
+
+A compact claim/source card could stay visible while the reader works elsewhere.
+
+Suggested fix: Prototype a user-pinned card from existing turn data without another model call.
+
+Accept: Keep the verdict, citation and limitations together; never imply a numerical confidence score.
+
+Earlier effort: S–M.
+
+### A36b · Export an evidence receipt
+
+Novel, delightful, or quirky ideas worth trying — nice-to-have
+
+A shareable receipt should preserve question, model, date, verdicts, limits and sources.
+
+Suggested fix: Offer a receipt format over the same complete export machinery as A46.
+
+Accept: Use existing turn data; retain incomplete/failure labels and unambiguous per-turn sources.
+
+Earlier effort: S–M.
+
+### A36c · Remember the last inspected source
+
+Novel, delightful, or quirky ideas worth trying — nice-to-have
+
+Readers lose their place when returning from a source inspection.
+
+Suggested fix: Keep a session reading bookmark. Persist scroll offsets only after user evidence justifies that behavior, since reopened threads often target the newest answer.
+
+Accept: Do not let streaming or layout changes override deliberate reading position.
+
+Earlier effort: S–M.
+
+### A36d · Seed a counter-evidence follow-up
+
+Novel, delightful, or quirky ideas worth trying — nice-to-have
+
+A finding has no quick Ask about this claim, Challenge this or What would change
+this answer seed.
+
+Suggested fix: Seed a disconfirming question without auto-sending it or destroying an existing draft.
+
+Accept: Reuse the claim and its originating turn's source context; never rebind old
+citation numbers to a new evidence list. Add no model call until the user submits.
+
+Where: Vervellum/Views/TurnView.swift:292–320; PanelRootView.swift:1108. Effort: half a day (S27).
+
+### A36e · Notify quiet Linux completion
+
+Novel, delightful, or quirky ideas worth trying — nice-to-have
+
+A hidden Linux window has no optional completion signal. The macOS status glyph already exists.
+
+Suggested fix: Offer a generic opt-in desktop completion notification, not an answer-text banner.
+
+Accept: Never leak answer text on the lock screen or steal focus; do not duplicate the Mac signal.
+
+Earlier effort: S–M.
+
+### A36f · Show a restrained planning cue
+
+Novel, delightful, or quirky ideas worth trying — nice-to-have
+
+Planning may remain silent while a non-streaming model works.
+
+Suggested fix: Try an optional indeterminate cue with a static Reduce Motion alternative.
+
+Accept: Never invent an ETA or animate individual streamed blocks.
+
+Earlier effort: S.
+
+### A36g · Use the planner reading as a thread subtitle
+
+Novel, delightful, or quirky ideas worth trying — nice-to-have
+
+A completed first turn's existing reading can be more useful than a truncated question title.
+
+Suggested fix: Reuse that text for a title/subtitle after the first turn, without another model call.
+
+Accept: Preserve user-assigned titles and incomplete-state labels.
+
+Historical score: 7.0 · 7/7/7 · S.
+
+### A36h · Badge disputed findings
+
+Novel, delightful, or quirky ideas worth trying — nice-to-have
+
+A collapsed trail hides whether any finding is mixed or contradicted.
+
+Suggested fix: Add a compact disagreement badge whose tooltip/accessibility label names the affected claim or count.
+
+Accept: Use existing verdicts; do not portray all-supported findings as a truth seal.
+
+Historical score: 6.3 · 6/6/7 · S.
+
+### A36i · Style the summary-only caveat as an evidence cue
+
+Novel, delightful, or quirky ideas worth trying — nice-to-have
+
+The snippet-versus-page distinction could be easier to scan.
+
+Suggested fix: Try a small magnifier chip while keeping the written summary/page-read caveat accessible and accurate.
+
+Accept: Only text actually sent to the model earns page-read styling.
+
+Earlier effort: S.
+
+### A37 · Compare research across time
+
+Novel, delightful, or quirky ideas worth trying — nice-to-have
+
+The earlier backlog's comparison feature remains unimplemented. Start with manual research-again-and-compare, preserving old evidence, source additions/removals, changed verdicts, source churn and changed conclusions.
+
+Suggested fix: Build an auditable ResearchDiff first. Consider scheduled watches only afterward, with explicit budgets, retention, provider disclosure and notification controls.
+
+Accept: Never silently resend old threads or present a refreshed source list alone as a changed answer.
+
+Earlier effort: L. Historical options: watch 5.3 · 5/5/6 · M; comparison strip 4.7 · 5/4/5 · M.
+
+### A40 · Documentation and release-gate drift remainder
+
+General issues — nice-to-have
+
+Verified drift remains across documentation and release automation. `CICD.md` names
+a nonexistent `glm-review.yml` trigger instead of the single
+`zai-code-review.yml` review workflow, and describes three release assets although
+releases publish four including Flatpak. The tag workflow runs shared tests but skips
+the provider fixtures, GTK lifecycle check, and desktop validation used by ordinary
+Linux CI; it installs `desktop-file-utils` without invoking it, while `linux.yml`
+does not run for tags. README still hard-codes `0.1.0` outside the release marker
+and leaves Linux scope ambiguous for search and Up/Down recall. `PRIVACY.md`
+misstates the update User-Agent and omits Linux stderr logging. Remaining Markdown
+emphasis claims, erase-backup fixture claims, and the ICON-CREDITS SF Symbol inventory
+also need reconciliation against code.
+Launch-with-history-off already covers backup creation and should not gain a
+duplicate regression.
+
+Suggested fix: update each document to the behavior that exists, share or reproduce
+the complete Linux verification gate in the release workflow, validate every stated
+test against a failure it can actually catch, and keep the published asset inventory
+in step with release automation.
+
+### A43 · Bounded transient retry remainder
+
+General issues — nice-to-have
+
+The multi-provider fallback chain with attribution and Stop respect exists.
+Remaining: at most one bounded same-provider backoff retry for transient
+planning/assessment failures (rate limits, dropped connections); streamed answers
+stay fail-fast; blind replay duplicates prose and charges; injected-clock tests
+for retryable-versus-permanent classification and attempt limits; cancellation
+during backoff; an offline gate before spending a call; a 429 `Retry-After`
+countdown instead of a bare "try again"; classify only sanitized status/transport
+outcomes, never provider error text.
+
+Suggested fix: a retry policy beside the fallback chain with an injected clock and
+visible retry progress.
+
+Accept: retry progress and any additional provider calls stay visible; no
+automatic streamed-answer replay.
+
+Historical network-state score: 5.7 · 6/5/6 · M.
+
+Earlier effort: M.
+
+### A44 · Machine-readable CLI output
+
+Missing features — nice-to-have
+
+Add `vervellum --json` with a versioned output contract: question, answer,
+findings, sources, notices, completion/failure state, and partial output. Keep
+progress on stderr and JSON alone on stdout (`StandardErrorLog` already anticipates
+the split). Mirror the transcript's completion rules: a failed turn keeps its
+partial text beside a failure state; a stopped one is marked stopped.
+
+Suggested fix: a portable transcript encoder in Core shared by the CLI and the
+transcript formatter.
+
+Accept: success, direct, partial failure, cancellation, Unicode, and empty-result
+fixtures parse as one document with a meaningful exit status; keys and foreign
+errors are never serialized.
+
+Historical score: 6.0 · 6/6/6 · S.
+
+Earlier effort: M.
+
+### A45 · Escape the revoked-selection-grant loop
+
+Usability: speed, convenience, clarity — nice-to-have
+
+The prompt explains the ad-hoc re-signing revoke. Remaining: a remembered "Open
+without selection" fallback after grant loss or denial, until the user chooses
+selection again; never re-prompt on every summon and never silently request
+Accessibility. A38 is the signing fix, not an excuse to trap the user in alerts.
+
+Suggested fix: a preference-backed fallback mode offered from the existing alert,
+keeping the summon path itself permission-free.
+
+Accept: revoked/denied/restored grants, subsequent summons, and preference resets
+are predictable; no captured text is sent or retained by the fallback.
+
+Earlier effort: S.
+
+### A46 · Export a whole research thread
+
+Missing features — nice-to-have
+
+Whole-thread Markdown export through ⌘S and `NSSavePanel` (activate the agent
+before showing the save panel; restore focus afterward), plus Linux UI/CLI exposure
+(S17; multi-turn researchers can copy turns but cannot save a coherent thread).
+Export questions, evidence, findings, limitations and per-turn completion state;
+numbered sources must stay unambiguous across turns, with `[n]: url` reference
+definitions written by Vervellum from the list it owns. Copy-one-citation,
+copy-a-code-block and ⌘⇧C for the last answer ride the same formatter.
+
+Suggested fix: a thread-level pass over `TranscriptFormatter` with per-turn source
+numbering, exposed through a save panel and the Linux CLI.
+
+Accept: multi-turn source-number collisions, failures with partial prose,
+non-ASCII paths, cancellation, denied writes, and history disabled; export only on
+explicit request; existing archive and secret-store boundaries untouched.
+
+Where: Sources/VervellumKit/Core/Text/TranscriptFormatter.swift; Vervellum/Views/TurnView.swift:189–200. Effort: 1 day (S17). Historical export: 7.7 · 7/7/9 · S; last-answer copy: 4.7 · 5/4/5 · S.
+
+Earlier effort: M.
+
+### A47 · `/digest` brief from unsettled claims
+
+Missing features — nice-to-have
 
 Produce a brief from the current thread's unsettled claims without new searches.
-Use existing context assembly and clearly label “No fresh search”; this is a thread
-summary, not a new evidence check. Preserve uncertainty and per-turn provenance;
-never let old citation numbers bind to a different turn's sources.
+Label it "No fresh search"; a thread summary, not a new evidence check. Preserve
+uncertainty and per-turn provenance; old citation numbers must never bind to a
+different turn's sources.
 
-**Accept:** no-search execution, empty/no-unsettled threads, context trimming,
-source-number collisions, and cancellation. Disclose the summarizing model call;
-do not silently re-send other threads or bypass A06's budgets.
+Suggested fix: a shared command dispatching to the existing context assembly and a
+summarizing model call over the current thread only.
 
-### A48 · P2/M — Show reasoning-stage progress (B5/D1)
+Accept: no-search execution; empty and no-unsettled-claim threads; context
+trimming; source-number collisions; cancellation; the summarizing call is
+disclosed; other threads are never re-sent and A06's budgets are not bypassed.
 
-**Where:** `ChatCompletionsClient.streamText`, research progress models, both trails.
+Earlier effort: M.
 
-`delta.reasoning_content` can precede `delta.content` for tens of seconds; earlier
-examples included GLM-5, DeepSeek-R1, and o-series through gateways. Count it as
-progress instead of showing dead air. Start with a phase/activity indicator;
-optionally offer collapsed provider-supplied reasoning intended for display. Do not
-confuse reasoning with the final answer or treat it as retrieved evidence.
+### A48 · Reasoning-stage progress
 
-**Accept:** reasoning-only prefixes, mixed deltas, normal models, cancellation, and
-non-streaming replies with both reasoning and content. Decode any new persisted
-progress/reasoning fields tolerantly so older archives still load. Preserve content parsing and
-empty-answer detection. Use fixtures first, then a live compatible model before
-shipping the optional display; the earlier review deferred it for that reason.
+Missing features — nice-to-have
 
-### A49 · P2/S — Pin the Linux CI image as documented
+`delta.reasoning_content` can precede `delta.content` for tens of seconds (GLM-5,
+DeepSeek-R1, o-series through gateways) and is currently unhandled; the trail
+shows dead air. Count it as progress with a phase/activity indicator; optionally
+offer collapsed provider-supplied reasoning intended for display. Never confuse
+reasoning with the final answer or treat it as retrieved evidence.
 
-**Where:** `.github/workflows/linux.yml`, `CICD.md`.
+Suggested fix: parse reasoning deltas in `ChatCompletionsClient.streamText` behind
+the existing progress plumbing, without altering content parsing or empty-answer
+detection.
 
-The comment claims a digest pin, but the job uses mutable `swift:6.1-noble`. Pin an
-explicit tested digest and document its refresh cadence. Preserve Swift language
-mode parity across platforms; do not silently inherit toolchain changes.
+Accept: reasoning-only prefixes, mixed deltas, normal models, cancellation, and
+non-streaming replies with both reasoning and content; new persisted progress or
+reasoning fields decode tolerantly so older archives load; fixtures first, then a
+live compatible model before shipping optional display.
 
-**Accept:** workflow metadata agrees with the actual image reference. Deliberate
-image refreshes run build/tests/package/install checks before adoption; pins receive
-regular security updates rather than becoming permanent stale snapshots.
+Earlier effort: M.
 
-**Fable status:** Same as `fable.md` B4/B49.
+### A49 · Pin the Linux CI image as documented
 
-### A50 · P2/M — Rename threads and delete individual turns (F12)
+General issues — nice-to-have
 
-**Where:** `ResearchThread`/`ThreadLibrary` operations, existing stores, both UIs.
+`linux.yml`'s comment claims a digest pin, but the job uses the mutable
+`swift:6.1-noble` (S11). Pin an explicit tested digest and document the refresh
+cadence, or remove the claim.
 
-Give threads stable user titles rather than truncated first questions. Remove a wrong
-turn without deleting the whole thread. Add undo/confirmation and coordinate active
-turn cancellation, queued snapshots, read-only archives, and history-off behavior.
+Suggested fix: pin the image by digest; record the refresh policy beside it.
 
-**Accept:** rename/reload, empty or Unicode titles, deleting first/middle/active turns,
-undo, and denied writes. Retained turns keep their own citation/source associations.
-Use tolerant decoding for optional titles and A13/A15's persistence coordination.
+Accept: workflow metadata agrees with the actual image reference; deliberate
+refreshes run build/tests/package/install checks before adoption; pins receive
+security updates rather than becoming stale snapshots; Swift language-mode parity
+across platforms is preserved.
 
-### A51 · P2/M — Safe external ask entry point (F14)
+Where: .github/workflows/linux.yml:28–32. Effort: 1–2 hours (S11).
 
-**Where:** macOS URL registration and app/panel orchestration.
+Earlier effort: S.
 
-Support `vervellum://ask?q=…` from Shortcuts, Alfred, or bookmarklets. Treat incoming
-URLs as untrusted input: bound/validate decoding, redact captured content, and seed
+### A50 · Rename threads and delete individual turns
+
+Missing features — nice-to-have
+
+Stable user titles instead of truncated first questions; remove a wrong turn
+without deleting the whole thread; undo/confirmation; coordinate active-turn
+cancellation, queued snapshots, read-only archives and history-off behavior.
+
+Suggested fix: `ResearchThread`/`ThreadLibrary` operations with tolerant optional
+title decoding, exposed in both UIs.
+
+Accept: rename/reload, empty or Unicode titles, deleting first/middle/active
+turns, undo, and denied writes; retained turns keep their own citation/source
+associations.
+
+Historical pin/rename option: 5.0 · 5/5/5 · M.
+
+Earlier effort: M.
+
+### A51 · Safe external ask entry point
+
+Missing features — nice-to-have
+
+Support `vervellum://ask?q=…` from Shortcuts, Alfred or bookmarklets. Incoming URLs
+are untrusted input: bound and validate decoding, redact captured content, and seed
 an inspectable composer rather than silently sending to a provider. Do not accept
 arbitrary commands, provider reconfiguration, credentials, or raw shell execution.
 
-**Accept:** encoded Unicode, malformed/oversized URLs, repeated activation, and drafts
-in progress. Never log the incoming query; preserve summon/focus behavior. Any future
-auto-submit automation needs a separate explicit consent design.
+Suggested fix: URL registration routing into the existing seed-the-composer path
+behind the same redaction/metadata rules as selection.
 
-**Fable status:** See A67 for App Intents and a Services-menu entry, which need no Accessibility grant and survive the ad-hoc re-signing that revokes it.
+Accept: encoded Unicode, malformed/oversized URLs, repeated activation, and drafts
+in progress; the incoming query is never logged; summon/focus behavior preserved;
+any auto-submit automation needs a separate explicit consent design.
 
-### A52 · P2/M — Redacted clipboard capture with `/clip` (F15)
+Historical Services/URL entry option: 5.7 · 6/5/6 · M. A Linux ask GApplication action was also proposed.
 
-**Where:** command dispatch, platform clipboard abstraction, shared capture/redaction.
+Earlier effort: M.
 
-Read the clipboard only on the explicit command and seed the composer through the
-same redaction/metadata path as selection. Build on A07: redact before truncation and
-before display. Preserve the existing draft or make replacement reversible without
+### A52 · `/clip` redacted clipboard capture
+
+Missing features — nice-to-have
+
+Read the clipboard only on the explicit command; seed the composer through the same
+redaction/metadata path as selection (builds on A07: redact before truncation and
+before display); preserve the existing draft or make replacement reversible without
 putting unredacted captured text into undo history.
 
-**Accept:** secrets/PEMs, oversized or non-text clipboard contents, active runs, undo,
-and visible truncation/redaction notices. Never auto-send, poll the clipboard, log
+Suggested fix: a platform clipboard abstraction behind the command dispatch,
+feeding the shared capture/redaction path.
+
+Accept: secrets/PEMs, oversized or non-text clipboard contents, active runs, undo,
+and visible truncation/redaction notices; never auto-send, poll the clipboard, log
 captured text, or replace the user's clipboard contents.
 
-**Fable status:** The sweep re-proposed this independently ("research the clipboard"); no new requirement.
+Historical score: 7.7 · 8/9/6 · S.
 
-### A53 · P3/S — Recent threads in the status menu (D6)
+Earlier effort: M.
 
-**Where:** macOS status-menu orchestration over the existing thread store.
+### A53 · Recent threads in the status menu
 
-Expose a bounded list of recent titles (five was the earlier proposal) with actions
-to reopen them. Coordinate with #36's activity indicator, renamed titles, and active
-research. This makes history reachable from the app's persistent surface.
+Usability: speed, convenience, clarity — nice-to-have
 
-**Accept:** empty/disabled history, deleted/renamed threads, keyboard menu navigation,
-and a run in progress. Reopening must not discard a draft or interrupt research
-silently; keep archive access behind the store.
+Expose a bounded list of recent titles (five was the earlier proposal) with reopen actions, coordinated with the
+status glyph, renamed titles and active research. Makes history reachable from the
+app's persistent surface.
 
-## Fable additions
+Suggested fix: a status-menu section over the existing thread store.
 
-Tasks the Fable review added that no existing entry carries. Same priority and size
-scale; each was checked against the code and the constraints in AGENTS.md.
+Accept: empty/disabled history, deleted/renamed threads, keyboard menu navigation,
+and a run in progress; reopening never discards a draft or silently interrupts
+research; archive access stays behind the store.
 
-### A54 · P2/S — Failure card with the right next action
+Earlier effort: S.
 
-**Where:** `ResearchRunner` (a `failureKind` on the turn), `TurnView.FailureView`, `LinuxPanel`.
+### A54 · Failure card with the right next action
 
-The failure card offers only "Try again", which re-runs the identical pipeline. When
-search failed the message *tells* the user to type `/direct`; when the app is
-unconfigured it tells them to open Settings. Put "Answer without search" and "Open
-Settings…" on the card, driven by a small enum on the turn (`search`, `model`,
-`configuration`, `other`) rather than by parsing the message.
+Usability: speed, convenience, clarity — nice-to-have
 
-**Accept:** each failure class shows the matching action; Try again still re-asks in
-the original mode (#57 fixed the mode inference); the Linux card gets the same
-actions where the platform has the feature.
+The failure card still offers only "Try again", which re-runs the identical
+pipeline. Put "Answer without search" and "Open Settings…" on the card, driven by a
+small `failureKind` enum on the turn (`search`, `model`, `configuration`, `other`)
+rather than by parsing the message; give the Linux card the same actions where the
+platform has the feature.
 
-### A55 · P2/S — Test connection in Settings
+Suggested fix: classify failures at the runner boundary and drive card actions from
+the enum.
 
-**Where:** `ProvidersView`, `SearchMCPClient`, `ChatCompletionsClient`.
+Accept: each failure class shows the matching action; Try again still re-asks in
+the original mode.
 
-Save validates URL shape only; the first real feedback on a wrong model name is a
-failed research turn forty seconds later. Add a "Test connection" button that runs the
-same two cheap calls the runner starts with (the MCP handshake; one tiny JSON
-completion against the named model) and reports Vervellum-authored results; point the
-empty state at it. Discloses exactly what leaves the machine.
+Historical score: 7.0 · 7/7/7 · S.
 
-**Accept:** wrong path, wrong model, bad key, quota error and success each produce a
-distinct sanitized sentence; no provider text is shown; the button is disabled while a
-test runs; cancellable.
+Earlier effort: S.
 
-### A56 · P2/M — "Verify this claim"
+### A55 · Full test-connection check
 
-**Where:** runner (a per-finding stage), `FindingsView`, `EvidenceExtractor.sources(from:startingAt:)`.
+Missing features — nice-to-have
 
-A per-finding action that plans two searches aimed at that claim (one to confirm, one
-to disconfirm), appends new sources with continuing numbers, and re-grades only that
-claim. Turns an `insufficient` verdict from a dead end into a next step. Sequential
-with the rest of the pipeline; budgets from A06.
+"List this provider's models" gives one cheap sanitized call (S16 is the broader
+ask). Remaining: pair it with the MCP handshake check so quota-versus-bad-key
+errors are distinguishable; cancellable semantics with the button disabled while a
+test runs; point the empty state at the check; disclose exactly what leaves the
+machine.
 
-**Accept:** the re-graded finding shows its new verdict and sources without touching
+Suggested fix: a Settings-side orchestrator running the same two cheap calls the
+runner starts with, reporting Vervellum-authored sentences.
+
+Accept: wrong path, wrong model, bad key, quota error and success each produce a
+distinct sanitized sentence; no provider text is shown.
+
+Where: Vervellum/Settings/ProvidersView.swift:594–650. Effort: 1 day (S16). Historical score: 8.7 · 9/9/8 · M.
+
+Earlier effort: S.
+
+### A56 · "Verify this claim"
+
+Novel, delightful, or quirky ideas worth trying — nice-to-have
+
+A per-finding action that plans two searches aimed at that claim (one to confirm,
+one to disconfirm), appends new sources with continuing numbers, and re-grades only
+that claim; turning an `insufficient` verdict from a dead end into a next step.
+Sequential with the rest of the pipeline; budgets from A06.
+
+Suggested fix: a per-finding stage in the runner over the existing plan/search/grade
+machinery.
+
+Accept: the re-graded finding shows its new verdict and sources without touching
 the others; cancellation mid-verify leaves the original finding; numbering never
 collides with the turn's existing sources.
 
-### A57 · P2/S — One-line evidential summary per turn
+Historical score: 8.3 · 9/7/9 · M.
 
-**Where:** a Core formatter shared by the macOS trail, the Linux trail, the CLI and the transcript.
+Earlier effort: M.
 
-`✓ 4 searches · 17 sources · 6 claims: 4 supported, 1 mixed, 1 not established · 0:41`.
-One function, three call sites, so the panel, `vervellum --ask` and Copy agree. The
-collapsed trail line on macOS and `PangoMarkup.trail` on Linux already compute
-half of it separately.
+### A57 · One-line evidential summary per turn
 
-**Accept:** identical text on both platforms for the same turn; cancelled and failed
-turns say so in the same line (#59/#61 already add "Stopped"); pluralisation tested.
+Usability: speed, convenience, clarity — nice-to-have
 
-### A58 · P2/S — `/sources`
+`✓ 4 searches · 17 sources · 6 claims: 4 supported, 1 mixed, 1 not established ·
+0:41`; one Core formatter shared by the macOS trail, the Linux trail, the CLI and
+the transcript, instead of the two half-implementations that exist separately.
 
-**Where:** `ComposerCommand`, runner (`Mode.sourcesOnly`), both front ends.
+Suggested fix: a single formatter in Core shared by all four consumers.
 
-Plan and search, show the numbered source list, skip the two model calls. For the
-user who wants the reading list, not the essay. Persisted as a turn with an empty
-answer and a notice, so history and the transcript stay honest.
+Accept: identical text on both platforms for the same turn; cancelled and failed
+turns say so in the same line; pluralisation is tested.
 
-**Accept:** no answer or assessment call is made; the turn renders its sources and
-"no answer was requested"; a follow-up in the thread does not treat it as an answer.
+Historical score: 7.3 · 7/7/8 · S.
 
-### A59 · P3/S — Tags
+Earlier effort: S.
 
-**Where:** `ResearchThread` (optional `tags`, tolerant decoding), `ThreadLibrary.search`, `/tag`, the history filter (`tag:` prefix).
+### A58 · `/sources` evidence-only mode
 
-**Accept:** old archives load; a tag survives rename and reopen; the filter combines
-with text search; Linux CLI can list by tag once A30 lands.
+Missing features — nice-to-have
 
-### A60 · P2/M — Visual tokens for the macOS panel
+Plan and search, show the numbered source list, skip answer generation and assessment, not the planning call.
+Persisted as a turn with an empty answer and a notice, so history and the
+transcript stay honest.
 
-**Where:** `PanelTheme`, `TurnView`, `FindingsView`, `SourcesView`, `PanelHeaderView`, `ResearchPanel`.
+Suggested fix: a `Mode.sourcesOnly` path in the runner behind the existing command
+dispatch.
 
-The parts of `fable.md` §5 not already in A26/A27, each a hypothesis to verify on a
-desktop:
+Accept: no answer or assessment call is made; the turn renders its sources and "no
+answer was requested"; a follow-up in the thread does not treat it as an answer.
 
-- **Light-mode contrast** (V1): the accent `#FF8A4C` measures about 2.3:1 on a light
-  ground and carries 10–11 pt chips and labels; `mixed` about 2.1:1, `supported` about
-  2.9:1. The Linux palette already chose light-safe hues (`#c4630f`, `#217a4a`,
-  `#9a6a10`). Scheme-aware `accent(scheme)`/`verdict(_:scheme)` plus a separate
-  `accentFill` for white-on-orange glyphs. (Belongs with A27's palette work.)
-- **One scale** (V3): thirteen font sizes today; a six-step scale
-  (10/11/13/15/17 + 11.5 mono) with every step taking `scale`. (With A26.)
-- **Verdict rows say one thing three times** (V4): icon column, tracked uppercase word,
-  and spine. One pill per row (icon + label in a tinted capsule), keep the 2 pt spine,
-  reclaim the 24 pt column.
-- **Evidence-health bar** (V5): a 4 pt segmented bar in the Claims header with the
-  counts as accessibility label and tooltip; a 3 pt copy in the collapsed trail line.
-  (A32 wants the same distribution in History rows.)
-- **Section rhythm** (V6): larger spacing between sections than within; a hairline
-  after each section label; a divider between turns.
-- **Cards vanish in dark mode; the scrim darkens light mode** (V7): scheme-tuned fills,
-  a white scrim in light mode, an opaque tint under Reduce Transparency. (A27.)
-- **Superscript citation chips** (V8) with brackets kept so a copied sentence reads.
-- **Domain monograms** (V9): a deterministic 16 pt letter tile (FNV-1a hue, first letter
-  of the registrable label). No favicon fetch — PRIVACY promises nothing leaves the Mac
-  except provider calls.
-- **Header chrome** (V10): close at the leading edge, New/History grouped trailing,
-  Settings demoted; `.resizable` on the style mask with min/max sizes written back to
-  preferences (B30 — width is only reachable through a Settings slider, `panelHeight`
-  has no UI, a dragged panel is re-placed on every show).
-- **Empty state** (V11): a 44 pt SF Symbol composition (search · evidence · verdict)
-  and the pipeline in its pending state.
-- **Linux parity** (V12): per-finding cards with a coloured left border, `alpha="65%"`
-  secondary text that follows the theme instead of `#7a7a7a`, superscript citations, a
-  block-character health bar.
+Historical score: 4.3 · 4/4/5 · S.
 
-**Accept:** measured contrast in both schemes; every text size scales; nothing
-collides at 140 %; screenshots in the PR. GUI QA before claiming an improvement.
+Earlier effort: S.
 
-### A61 · P2/S — Hotkey semantics: a product decision, and one real defect
+### A59 · Thread tags
 
-**Where:** `PanelController.toggle`, `PanelController.show`, PLAN §5.1, the Shortcuts footnote.
+Missing features — nice-to-have
 
-`fable.md` B22 called it a bug that the summon hotkey *hides* a panel that is open
-but no longer key (the user clicked into their editor, then pressed the shortcut for a
-follow-up). A verifier showed PLAN §5.1, the §5.3 key table and the Shortcuts footnote
-all document "press again to dismiss", so it is a decision, not a defect: Spotlight and
-Raycast re-focus in this state; this app dismisses. Decide, and if re-focus wins, update
-the three documents with the code. The related real defect stands: `appToRestoreOnClose`
-is captured at the first `show()` and not refreshed when the user clicks through a
-third app and back, so Escape yields to the originally remembered app. A cheap delight
-from the same file: a hotkey double-tap reopens the last thread (D6).
+Optional `tags` on `ResearchThread` with tolerant decoding, a `/tag` command, and a
+`tag:` prefix in the history filter that combines with text search.
 
-**Accept:** whichever semantics is chosen is stated in PLAN, the footnote and the code
-comment; Escape returns focus to the app the user actually left.
+Suggested fix: as above; the Linux CLI can list by tag once A30 lands.
 
-### A62 · P2/S — Range citations
+Accept: old archives load; a tag survives rename and reopen; the filter combines
+with text search.
 
-**Where:** `CitationValidator.citationRegex`, `numbers(in:)`, both renderers.
+Historical score: 3.0 · 3/3/3 · S.
 
-`[1-3]`, `[1–3]` and `[2—4]` match nothing, so they stay literal text, contribute no
-cited sources and are not flagged; the turn reads as clean. Accept
-`\d+\s*[-–—]\s*\d+` inside the brackets and expand it (bounded by `sourceCount`), or
-flag an unparseable digit group as `invalidCitation`.
+Earlier effort: S.
 
-**Accept:** `[1-3]` renders as chips for 1, 2, 3 and marks them cited; `[9-2]` and
-`[1-300]` are flagged; code spans (#56) still ignored.
+### A60 · Consolidate the typography scale
 
-### A63 · P2/S — Redact pasted text
+Aesthetics and theming — nice-to-have
 
-**Where:** `ComposerView` (paste), `AppDelegate.onSeedComposer`, `SecretRedactor`.
+Text now scales, but the earlier six-step type proposal remains separate from the existing many-size metric funnel.
 
-Only Accessibility-captured text is redacted; ⌘V goes straight through, and a `.env`
-line pasted in a hurry is the case `SecretRedactor` exists for. Route paste through
-the same redaction and the same banner. Builds on A07 (redact before truncation).
+Suggested fix: Evaluate 10/11/13/15/17 plus 11.5 mono, with every step accepting the reading scale.
 
-**Accept:** a pasted key is replaced and the banner names the count; plain prose
-pastes are untouched; the redaction is visible before Return, never applied silently on
-send.
+Accept: Verify 140% text, both appearances and screenshots before claiming improvement. Keep code/citations monospaced.
 
-### A64 · P2/S — A citation click reveals the source in the panel
+Where: Vervellum/Views/PanelTheme.swift. Historical score: 7.3 · 8/6/8 · M.
 
-**Where:** `MarkdownText` chips, `SourcesView`, `PanelRootView` scroll proxy.
+Earlier effort: M.
 
-Every click on `[3]` leaves the panel for the browser. Make a click scroll to and flash
-source 3's row; ⌘-click opens the page. Pairs with A25's inspector and keeps the
+### A60a · Simplify verdict card hierarchy
+
+Aesthetics and theming — nice-to-have
+
+Verdict rows repeat meaning through an icon column, tracked uppercase text and a spine.
+
+Suggested fix: Try one icon-and-label pill while keeping the 2 pt spine and reclaiming the 24 pt column.
+
+Accept: Retain readable verdict words/symbols, source actions and contrast at enlarged text sizes.
+
+Historical score: 6.3 · 6/5/8 · S.
+
+### A60b · Show an accessible verdict distribution
+
+Aesthetics and theming — nice-to-have
+
+A small distribution could summarize the finding table and collapsed trail.
+
+Suggested fix: Prototype a 4 pt segmented Claims bar, 3 pt collapsed-trail variant and History-row distribution with accessible counts, verdict labels and incomplete status.
+
+Accept: Never substitute the bar for written uncertainty or present it as a confidence score.
+
+Historical score: 6.7 · 6/5/9 · S.
+
+### A60c · Clarify section and turn boundaries
+
+Aesthetics and theming — nice-to-have
+
+Sections can read like consecutive paragraphs.
+
+Suggested fix: Try larger between-section spacing, section hairlines and a turn separator.
+
+Accept: Verify narrow/large-text layouts and both schemes before adopting.
+
+Historical score: 6.0 · 6/5/7 · S.
+
+### A60d · Refine citation styling
+
+Aesthetics and theming — nice-to-have
+
+The earlier visual proposal used superscript chips.
+
+Suggested fix: Try superscript citations while keeping brackets in copied text and independently accessible source actions.
+
+Accept: Keep the app-owned numbered-citation rule and measured contrast.
+
+Historical score: 7.0 · 8/5/8 · M.
+
+### A60e · Generate source monograms locally
+
+Aesthetics and theming — nice-to-have
+
+Small deterministic source tiles could aid scanning without favicon requests.
+
+Suggested fix: Prototype a 16 pt letter tile with stable FNV-1a hue and the registrable label's first letter.
+
+Accept: No network fetch; labels and contrast must remain usable without color.
+
+Historical score: 3.7 · 4/3/4 · S.
+
+### A60f · Make panel chrome and resizing explicit
+
+Aesthetics and theming — nice-to-have
+
+Width is set through Settings, panelHeight has no UI, and header-dragged placement is not remembered.
+
+Suggested fix: Evaluate leading Close, grouped New/History, demoted Settings and a resizable style with min/max dimensions persisted through preferences.
+
+Accept: Coordinate placement with A77c/A77d; verify short displays, full-screen use and enlarged text.
+
+Historical score: 5.3 · 6/4/6 · M.
+
+### A60g · Illustrate the empty research state
+
+Aesthetics and theming — nice-to-have
+
+The earlier proposal used a small search/evidence/verdict composition to explain the pipeline.
+
+Suggested fix: Try a 44 pt SF Symbol composition and pending-stage illustration, not decorative per-token motion.
+
+Accept: Keep readable onboarding and configuration actions; verify real screenshots.
+
+Historical score: 3.3 · 3/3/4 · S.
+
+### A60h · Bring evidence styling to GTK
+
+Aesthetics and theming — nice-to-have
+
+Linux still lacks the proposed per-finding cards and shared evidence-health cues.
+
+Suggested fix: Evaluate colored card spines, theme-following secondary-text alpha, superscript citations and a block-character distribution bar.
+
+Accept: Retain words/symbols, adaptive contrast and accessible counts. No platform parity claim before GUI QA.
+
+Historical score: 6.0 · 5/6/7 · M.
+
+### A61 · Summon-again semantics and the restore target
+
+Usability: speed, convenience, clarity — nice-to-have
+
+A product decision, not a defect: the summon hotkey *hides* a panel that is open
+but no longer key, where Spotlight and Raycast re-focus. PLAN §5.1, the §5.3 key
+table and the Shortcuts footnote all document "press again to dismiss"; decide,
+and if re-focus wins, update the three documents with the code. The restore-target defect is tracked under A77b. Cheap delight from the same file: a hotkey double-tap
+reopens the last thread.
+
+Suggested fix: record the chosen semantics in PLAN, the footnote, and the code
+comment.
+
+Accept: whichever semantics is chosen is stated consistently; Escape returns focus
+to the app the user actually left.
+
+Earlier effort: S.
+
+### A62 · Range citations
+
+Bugs — nice-to-have
+
+`[1-3]`, `[1–3]` and `[2—4]` match nothing in the digits-and-commas citation
+regex, so they stay literal text, contribute no cited sources and are not flagged —
+the turn reads as clean when it is not.
+
+Suggested fix: accept `\d+\s*[-–—]\s*\d+` inside the brackets and expand it bounded
+by `sourceCount`, or flag an unparseable digit group as `invalidCitation`.
+
+Accept: `[1-3]` renders chips for 1, 2, 3 and marks them cited; `[9-2]` and
+`[1-300]` are flagged; code spans stay ignored.
+
+Earlier effort: S.
+
+### A64 · A citation click reveals the source in the panel
+
+Usability: speed, convenience, clarity — nice-to-have
+
+Every click on `[3]` currently leaves the panel for the browser. Make a click
+scroll to and flash source 3's row; ⌘-click opens the page; keyboard activation
+does the same as click. Pairs with A25's inspector and keeps the
 "evidence is the product" reading loop inside the panel.
 
-**Accept:** click flashes the row without leaving the panel; ⌘-click opens; keyboard
-activation does the same as click.
+Suggested fix: a scroll proxy from `MarkdownText` chips to `SourcesView` rows,
+with Command-click taking the existing open path. Option-click can copy an
+app-resolved Markdown footnote ([1]: url title), with an accessible Copy source
+alternative and A36's success receipt. Add an explicit Open all cited action,
+showing the count and confirming large groups; never open multiple tabs implicitly.
 
-### A65 · P2/M — Keyboard-complete thread and ⌘F
+Accept: click flashes the row without leaving the panel; ⌘-click opens;
+keyboard-activated chips behave identically.
 
-**Where:** `ResearchPanel.performKeyEquivalent`, `PanelCommand`, `ComposerView.Coordinator` (`insertTab:`/`insertBacktab:`), `PanelRootView` (`@FocusState`), `MarkdownText` (match highlighting).
+Historical score: 6.3 · 7/5/7 · S.
 
-Every action below the answer — Copy, Try again, follow-ups, "Show N found but not
-cited", the trail disclosure, source rows — is a plain button only the pointer can
-reach, and Tab inserts a tab. Tab/Shift-Tab leave the composer and walk the last
-turn's actionable items with a visible focus ring; ⌥1–3 ask the follow-ups; ⌘E toggles
-the trail; ⌘R retries; ⌘⇧A toggles uncited sources; ⌘F opens a find bar that highlights
-matches in answers, findings and sources with ⌘G/⌘⇧G stepping. The composer stays an
-`NSTextView` (AGENTS.md); this adds `doCommandBy` handling, it does not replace the
+Earlier effort: S.
+
+### A65 · Keyboard-complete thread and ⌘F
+
+Usability: speed, convenience, clarity — nice-to-have
+
+There is no designed keyboard traversal from the composer to Copy, Try again,
+follow-ups, source disclosure and trail actions: Tab inserts a tab. Tab/Shift-Tab should leave the composer and walk the last turn's actionable
+items with a visible focus ring; ⌥1–3 ask the follow-ups; ⌘E toggles the trail;
+⌘R retries; ⌘⇧A toggles uncited sources; ⌘F opens a find bar highlighting matches
+in answers, findings and sources with ⌘G/⌘⇧G stepping. The composer stays an
+`NSTextView` (AGENTS.md); this adds `doCommandBy` handling, not a replacement
 view. Coordinate the history half with A28.
 
-**Accept:** every visible action is reachable without a pointer; the focus ring is
-visible in both schemes; Escape returns focus to the composer before its usual back-out
-order; find highlights update as the answer streams without restarting the search.
+Suggested fix: `performKeyEquivalent` routing plus `insertTab:`/`insertBacktab:`
+in the composer coordinator, a `PanelCommand` enum, and a find bar over a match
+index on the rendered blocks.
 
-### A66 · P2/M — VoiceOver pass
+Accept: every visible action is reachable without a pointer; the focus ring is
+visible in both schemes; Escape returns focus to the composer before its usual
+back-out order; find highlights update as the answer streams without restarting
+the search.
 
-**Where:** `ProcessTrailView`, `FindingsView.SectionLabel`, `ComposerView`, `HistoryView`, `TurnView`, `ResearchEngine.apply`.
+Historical traversal: 6.3 · 8/4/7 · M; find: 5.3 · 6/5/5 · M.
 
-Beyond A28: nothing announces that planning finished, that sources arrived or that
-the answer is complete; section labels are plain uppercase text with no header trait;
-the composer `NSTextView` has no accessibility label or placeholder; the trail's
-`ProgressView` has no label; a streaming `Text` re-rendered per chunk makes VoiceOver
-re-read from the top. Post stage-change announcements (`.announcementRequested` with
-`ResearchStage.label`), add `.isHeader` to section labels and the question, label the
-composer, and mark the streaming body as a container whose value updates at block
-boundaries.
+Earlier effort: M.
 
-**Accept:** a VoiceOver user hears each stage change once, can rotor between Claims /
-Sources / Next, can delete a thread, and is not interrupted per token.
+### A66 · Complete heading navigation and verify streamed reading
 
-### A67 · P3/S — App Intents and a Services-menu entry
+Usability: speed, convenience, clarity — nice-to-have
 
-**Where:** a macOS `AppIntent` target, `NSServices` in Info.plist, the existing seed-the-composer path.
+Stage announcements and some heading traits exist; native composer labeling is covered. Generic SectionLabel still needs heading semantics for Claims, Limitations and Next, plus the question. Real VoiceOver behavior during per-chunk updates remains unverified. Finding-source action exposure is covered by open #145.
 
-"Research with Vervellum" (Services menu, with the selected text) and "Ask Vervellum"
-(Shortcuts, Spotlight) through the same redaction path as the selection shortcut,
-never auto-submitting. Neither needs the Accessibility grant, and both survive the
-ad-hoc re-signing that revokes it (A45). Extends A51's URL scheme.
+Suggested fix: Add missing heading traits. Verify whether streamed answer updates restart reading; if they do, expose block-boundary accessibility updates rather than per-token value changes.
 
-**Accept:** same input rules as A51; the Services entry appears only for text
+Accept: Rotor navigation reaches Claims, Sources and Next; each stage is announced once; streaming does not repeatedly interrupt reading. Verify deletion with the separate History work.
+
+Where: Vervellum/Views/FindingsView.swift:119–139; TurnView.swift; AnswerTextView.swift. Earlier effort: M.
+
+Historical score: 7.3 · 7/7/8 · M.
+
+### A67 · App Intents and a Services-menu entry
+
+Missing features — nice-to-have
+
+"Research with Vervellum" (Services menu, with the selected text) and "Ask
+Vervellum" (Shortcuts, Spotlight) through the same redaction path as the selection
+shortcut, never auto-submitting. Neither needs the Accessibility grant, and both
+survive the ad-hoc re-signing that revokes it (A45). Extends A51's URL scheme.
+
+Suggested fix: a macOS `AppIntent` target and `NSServices` in Info.plist feeding
+the existing seed-the-composer path.
+
+Accept: same input rules as A51; the Services entry appears only for text
 selections; no capture is logged or sent without the user pressing Return.
 
-### A68 · P3/S — Print, Save as PDF, share sheet
+Historical score: 5.7 · 6/5/6 · M.
 
-**Where:** macOS command dispatch over `TranscriptFormatter`/an attributed renderer.
+Earlier effort: S.
+
+### A68 · Print, Save as PDF, share sheet
+
+Missing features — nice-to-have
 
 ⌘P prints the current turn (or thread) with its sources; the share sheet takes the
-same rendering. Reuse #26/A46's completeness rules so a printed answer never lacks
-its sources.
+same rendering. Reuse the transcript completeness rules so a printed answer never
+lacks its sources.
 
-**Accept:** page breaks do not split a finding from its citation; failed and stopped
+Suggested fix: command dispatch over `TranscriptFormatter`/an attributed renderer
+into the standard print/share infrastructure.
+
+Accept: page breaks never split a finding from its citation; failed and stopped
 turns print their state line.
 
-### A69 · P2/S — Diagnostics report
+Historical score: 4.3 · 4/4/5 · S.
 
-**Where:** About/Settings (macOS), `vervellum --doctor` (Linux).
+Earlier effort: S.
 
-"Copy diagnostic report": app version, OS, provider endpoints and model names (never
-keys), search backend, secret backend in use, hotkey registration state, history
-state, last failure class and stage timings. Everything a bug report needs and nothing
-PRIVACY forbids.
+### A69 · Diagnostics report
 
-**Accept:** the report contains no key, no question text and no provider error text;
+General issues — nice-to-have
+
+"Copy diagnostic report": app version, OS, provider endpoints and model names
+(never keys), search backend, secret backend in use, hotkey registration state,
+history state, last failure class and stage timings; everything a bug report
+needs and nothing PRIVACY forbids.
+
+Suggested fix: an About/Settings action on macOS and `vervellum --doctor` on Linux
+over a shared Core assembler.
+
+Accept: the report contains no key, no question text and no provider error text;
 `--doctor` exits non-zero when a required piece is missing.
 
-### A70 · P2/S — Library backup and restore
+Historical score: 5.3 · 5/6/5 · S.
 
-**Where:** Settings ▸ General over `ThreadArchive`.
+Earlier effort: S.
 
-Export the whole `threads.json` and import one, through the version guard (#60): a
-newer document is refused with the reason, an older one is loaded and re-saved at the
-current version.
+### A70 · Library backup and restore
 
-**Accept:** round trip preserves every turn; import of a newer version is refused
+Missing features — nice-to-have
+
+Export and import the whole `threads.json` from Settings ▸ General through the
+version guard: a newer document is refused with the reason; an older one is loaded
+and re-saved at the current version.
+
+Suggested fix: save/open panels over the archive's existing encode/decode with the
+version gate applied to imports.
+
+Accept: the round trip preserves every turn; importing a newer version is refused
 visibly; a corrupt file is refused without touching the current library.
 
-Two further sweep ideas are recorded without a task: a **reading window** (open the
-thread in a normal resizable window for a long read) and **localisation readiness** (a
-String Catalog and locale-aware dates before the first translation). Both are worth
-doing after A60 and A66.
+Historical score: 5.0 · 5/5/5 · S.
 
-### A77 · P2/M — Panel activation and geometry defects
+Earlier effort: S.
 
-**Where:** `PanelController`, `SettingsWindowController`, `UpdateChecker`, `AppDelegate.presentAccessibilityPrompt`, `SelectedTextReader`, `GeneralView`.
+### A75 · Keep minimal progress when process detail is off
 
-Verified by code trace, each a few lines, all in the window-management layer:
+Usability: speed, convenience, clarity — nice-to-have
 
-- Both `NSAlert` paths (update available, Accessibility prompt) call `NSApp.activate()`
-  at an arbitrary moment and never hand activation back; the update alert's default
-  button is Download (B90). Present background checks non-modally (a sheet on the open
-  panel or a status-item badge), run modally only for "Check now", and yield
-  activation afterwards as the panel does.
-- Activation is restored with `.activateAllWindows`, which raises *every* window of the
-  previous app over other apps as a side effect of dismissing the panel (B92). Use
-  `activate(options: [])`.
-- `appToRestoreOnClose` is captured at the first `show()` and not refreshed when the
-  user clicks through a third app and back, so Escape yields to the wrong app (A61).
-- Width and position changes in Settings do not reach an open panel; the composer is
-  measured against the new width while the window keeps the old one (B94). Observe the
-  preference and re-`place` while open.
-- Re-entering an open panel snaps a header-dragged panel back to its computed position,
-  and a dragged position is never remembered (B95). Skip `place` when open unless the
-  pointer screen changed.
-- Nothing observes `didChangeScreenParametersNotification`; an edge layout keeps the
-  removed display's height (B96).
-- `SelectedTextReader` blocks the main thread on a hung frontmost app for the AX
-  messaging timeout, up to four times, before the panel appears (B97). Set
-  `AXUIElementSetMessagingTimeout` to about a second, show the panel first and seed
-  the composer when the read returns.
+With Show what each search did off, plan/search phases can render only the question.
 
-**Accept:** an alert never leaves Vervellum frontmost with no windows; dismissing the
-panel raises nothing but the app the user left; a dragged panel stays where it was
-dragged for the session; unplugging a display re-places an open panel; a hung
-frontmost app delays the selection, not the panel.
+Suggested fix: Show a minimal spinner/stage row for nonterminal turns; let the preference govern detailed and finished trails.
 
-### A78 · P1/S — Stamp the Linux binary's version at build time
+Accept: Verify all stages with detail on/off and at enlarged text sizes.
 
-**Where:** `Core/Platform/AppIdentity.swift`, `packaging/build-deb.sh`, `release.yml`.
+Where: Vervellum/Views/TurnView.swift:64–66. Earlier effort: S.
 
-`AppIdentity.version` falls back to the hard-coded `0.1.0` whenever `Bundle.main` has
-no `CFBundleShortVersionString`, which is always the case for the Linux executable. The
-tag's version reaches the package name and `DEBIAN/control` but never the binary, so a
-released `.deb` reports `0.1.0` forever from `--version`, in the User-Agent, and to the
-update comparison. Generate a small Swift source (or a resource) from `VERSION` in
-`build-deb.sh` before `swift build`, and have `AppIdentity` read it on Linux; fail the
-build when the stamp is missing in a release job.
+### A75a · Show stopped planning as stopped
 
-**Accept:** `vervellum --version` in the installed package prints the tag; the update
-check compares the real version; a local `swift build` without a stamp still runs and
-says so.
+Usability: speed, convenience, clarity — nice-to-have
 
-## Small-defect batches from the Fable review
+A turn cancelled during planning can remain a bare question without status or retry.
 
-### A75 · P2/S — macOS small defects
+Suggested fix: Show a cancelled-stage trail or a Stopped/Try again row, preserving the question and original mode.
 
-Each verified against the code; each a few lines.
+Accept: Stop during every stage; do not silently relaunch queued billable work.
 
-- With "Show what each search did" off, a running turn shows nothing for the whole
-  plan-and-search phase (B77 / sweep): show a minimal running row (spinner +
-  `stage.label`) whenever `!stage.isTerminal`, and let the preference govern only the
-  detail and the post-run summary. (#66 does this on Linux.)
-- The empty-state hint and `/help` ignore `submitOnReturn` (B28).
-- `ComposerView.Coordinator.textView(_:doCommandBy:)` submits on `insertNewline:` with
-  no `hasMarkedText()` guard. An input method usually eats the Return that confirms a
-  composition, but a Return it passes through would send a half-converted draft: check
-  the routing with a CJK input method and guard the submit selectors if it reaches them.
-- Opening a thread from history while research is running cancels the run silently
-  (B73): guard row activation or ask; check #25 first.
-- `Preferences.launchAtLogin` calls `SMAppService.mainApp.status` (an XPC round trip)
-  on every render of the General pane (B31): sample once on appear.
-- `HotkeyRecorder` compares `keyCode == 53` instead of a named constant (B32).
-- History delete has no confirmation and no undo (B29) — A28 carries it.
-- The ordered-list marker is clamped to a 16 pt frame, so `10.` does not fit (B78):
-  size the column from the font.
-- Submitting while the history list is open runs the research behind the list (B82):
-  clear `showsHistory` on submit.
-- A turn cancelled during planning renders as a bare question with no status and no
-  retry (B83): show the trail for `.cancelled` and a "Cancelled · Try again" row.
-- The verdict label and its chips sit in a non-wrapping `HStack` (B87) — A26.
-- The history search field never receives focus (B88) — A28/A23.
-- Read-only mode is never surfaced in the UI (B99) — A12.
+Where: Vervellum/Views/TurnView.swift. Earlier effort: S.
 
-### A76 · P2/S — Linux and documentation small defects
+### A75b · Size ordered-list markers for multiple digits
 
-- The Linux service can only be quit through an undocumented D-Bus action (B59): add
-  `vervellum --quit`, a `[Desktop Action quit]` (GAction name identical, per AGENTS.md),
-  and a README line. Coordinate with A18's settings reload.
-- README promises Up/Down recall and searchable threads for both platforms (B56): mark
-  them macOS until A30 lands, or add ↑/↓ recall to `LinuxPanel` (the questions are in
-  `thread.turns`; the key handler already exists).
-- `CICD.md` says three workflows and lists four (B57).
-- No `CHANGELOG.md` (B51); the README screenshot has since landed.
-- `render()` spawns `secret-tool` twice, synchronously, on the GTK main loop whenever
-  the thread is empty (B40) — A17 carries it.
-- The erase tests never create a `.bak`, so a backup left behind would pass, and the
-  `MarkdownParserTests` emphasis test cannot fail for its stated reason (B69) — A40
-  carries both.
-- The Linux secrets docs describe a 0600 key file the app never writes and whose format
-  is undocumented; nothing records which tier answered a read, so `backendDescription`
-  hedges (B108): record `lastReadBackend` and document the file, or drop the tier.
-- The documentation drift list in A40's Fable status (B101–B107).
+Visual issues and layout problems — nice-to-have
 
-## Idea scores from the Fable judges
+The fixed 16 pt marker column cannot reliably fit 10. and longer markers.
 
-Three judges scored every Fable idea from 1 (drop) to 10 (must build): a demanding
-daily user, the engineer bound by AGENTS.md, and a designer holding the thesis "the
-evidence is the product". Columns: mean · user/engineer/designer · effort. Ideas
-already shipped or carried by an open PR are still listed so the ranking stays whole;
-"DROP:" rows are proposals to drop another idea, scored by agreement. The judges' notes
-are in the review session's records; the ranking, not the notes, decided which ideas
-became tasks above.
+Suggested fix: Size the marker column from its font/content instead of a fixed narrow frame.
 
-| Mean | U/E/D | Size | Idea |
-|---|---|---|---|
-| 9.3 | 10/8/10 | L | "Read the page": user-initiated full-text fetch for one or two decisive sources, then re-assess |
-| 8.7 | 9/9/8 | S | Let the reader scroll up during streaming; add a 'jump to latest' pill |
-| 8.7 | 9/9/8 | M | 'Test connection' in Providers, and a first-run pass that walks through it |
-| 8.3 | 9/7/9 | M | Per-search progress with live source arrival and an elapsed clock |
-| 8.3 | 8/8/9 | S | Appearance-adaptive accent and verdict colours (light mode currently fails contrast) |
-| 8.3 | 9/7/9 | M | "Verify this claim": targeted re-search and re-grade of a single finding |
-| 8.3 | 9/9/7 | S | Search-backend adapter: configurable MCP tool name so Brave/Tavily/Exa/SearXNG MCP servers work |
-| 8.3 | 9/9/7 | S | Coalesce streamed snapshots to one main-queue hop per display frame (latest-wins), flush structural changes immediately |
-| 8.0 | 8/8/8 | M | Type-to-filter history driven by the composer, with ↑/↓/Return selection and day grouping |
-| 8.0 | 7/9/8 | S | Reduce Motion is never consulted; add a Motion.isReduced gate and observe the accessibility notification |
-| 8.0 | 7/9/8 | S | Live search progress in the trail: "Searching · 2 of 4 — checking whether X" |
-| 8.0 | 8/8/8 | S | DROP: /about prints the pipeline as ASCII; /coin refuses to research coin flips |
-| 7.7 | 9/7/7 | S | Redact pasted text the same way captured text is redacted |
-| 7.7 | 7/7/9 | S | Show a source's snippet on keyboard focus and click, not hover-only, and keep row height stable |
-| 7.7 | 7/9/7 | S | Export a thread as Markdown (and optional HTML) with its sources and verdicts |
-| 7.7 | 7/7/9 | M | Tag the disconfirming search, and badge a plan that never looked for counter-evidence |
-| 7.7 | 8/9/6 | S | Make `TurnView` (and `FindingsView`/`SourcesView`) Equatable so completed turns stop re-rendering and re-validating every frame |
-| 7.7 | 8/9/6 | S | Research the clipboard: a permission-free sibling of Research the Selection |
-| 7.7 | 8/7/8 | S | DROP: A seal for a fully-supported answer |
-| 7.3 | 8/6/8 | M | A real type scale, scaled everywhere (claims, sources and captions ignore the Text-size preference) |
-| 7.3 | 7/7/8 | S | One-line evidential summary per turn, shared with the CLI and transcript |
-| 7.3 | 7/7/8 | S | Monoculture flag: "every cited source is from one domain" |
-| 7.3 | 8/7/7 | M | Publish the running turn through its own ObservableObject; republish `engine.thread` only at turn boundaries |
-| 7.3 | 7/7/8 | M | VoiceOver pass: announce stage changes, mark section headers, label the composer, expose hover-only controls |
-| 7.3 | 7/7/8 | S | DROP: Notification Center banner with the first sentence of the answer |
-| 7.0 | 7/7/7 | S | Inline recovery on failure: 'Answer without search' and 'Open Settings' next to 'Try again' |
-| 7.0 | 8/5/8 | M | Superscript citation chips in prose, plus hover/click source cards |
-| 7.0 | 7/7/7 | S | History rows subtitled with the planner's reading (a free one-line summary) |
-| 7.0 | 7/7/7 | M | Pipe tables: parse GFM tables in MarkdownParser or forbid them in the answer prompt |
-| 6.7 | 8/6/6 | M | Queue the next question while a run is in flight |
-| 6.7 | 6/5/9 | S | Evidence-health bar in the Claims header |
-| 6.7 | 6/6/8 | S | Scheme-tuned glass, scrim and fills (cards vanish in dark mode; scrim darkens light mode) |
-| 6.7 | 7/6/7 | S | Scroll-to-bottom at most once per frame, and only while the reader is pinned to the bottom |
-| 6.7 | 7/4/9 | M | Claim ↔ prose linking: hovering a finding highlights the sentences it grades, and vice versa |
-| 6.3 | 7/6/6 | M | Copy as Markdown, copy one citation, open all cited, and a copy button on code blocks |
-| 6.3 | 6/5/8 | S | Verdict pills (icon + label in a capsule) replacing the icon rail + tracked uppercase word |
-| 6.3 | 6/7/6 | S | Model provider presets with endpoint auto-fill (OpenAI, OpenRouter, Groq, Ollama, LM Studio, llama.cpp, Anthropic-via-gateway) |
-| 6.3 | 6/7/6 | S | Per-turn and per-stage model override: `/model` command and a separate assessment model |
-| 6.3 | 7/5/7 | S | Citation click scrolls to and highlights the source row; ⌘-click opens the page |
-| 6.3 | 6/6/7 | S | Contested-turn badge: "sources disagree on 2 claims" in the trail and in history |
-| 6.3 | 6/6/7 | S | Menu-bar icon that works while a run is in flight, and keeps a dot until you read the result |
-| 6.3 | 6/7/6 | S | Flush the archive asynchronously on dismiss; keep the synchronous flush for termination only |
-| 6.3 | 8/4/7 | M | Keyboard-complete thread: Tab out of the composer, ⌥1–3 for follow-ups, ⌘E trail, ⌘R retry, ⌘⇧A all sources |
-| 6.3 | 7/6/6 | S | Persist the draft and the open thread across quit, crash and relaunch |
-| 6.3 | 6/6/7 | S | DROP: Source-age tint — colour each citation by how old the page is |
-| 6.0 | 6/6/6 | S | Tab completes the slash command; ↑/↓ walk the completion list instead of recall |
-| 6.0 | 6/6/6 | S | ⌘1–⌘9 open the last answer's cited sources; ⌘⇧C copies it |
-| 6.0 | 6/5/7 | S | Section dividers and a turn separator so sections stop reading as paragraphs |
-| 6.0 | 5/6/7 | M | Linux parity: per-finding cards, theme-adaptive secondary text via Pango alpha, superscript citations and a block-character health bar |
-| 6.0 | 6/6/6 | S | `vervellum --ask --json`: machine-readable CLI output |
-| 6.0 | 6/6/6 | M | Linux parity for `/history`, `/settings` and `/copy` |
-| 6.0 | 6/5/7 | S | "Copy with sources" on any paragraph: citations resolved to footnotes |
-| 6.0 | 7/5/6 | S | Cache each block's rendered AttributedString keyed by (text, source ids, scale, font) so only the growing block re-enters cmark |
-| 6.0 | 6/7/5 | S | History search: stop lowercasing every answer in the library on every keystroke (and evaluating it twice per render) |
-| 6.0 | 8/5/5 | S | DROP: Per-block fade-in as the answer arrives |
-| 5.7 | 5/5/7 | S | Stage timeline in the process trail while a turn runs |
-| 5.7 | 6/5/6 | M | Services menu "Research with Vervellum" and a `vervellum://ask?q=` URL scheme (plus a Linux `ask` GApplication action) |
-| 5.7 | 6/5/6 | M | Network-aware error states: offline gate before spending a call, and a 429 Retry-After countdown |
-| 5.7 | 6/5/6 | M | App Intents: 'Research with Vervellum' and 'Ask Vervellum' for Shortcuts, Spotlight and Siri |
-| 5.3 | 6/5/5 | M | Provider presets and a 'searches per question' setting |
-| 5.3 | 6/4/6 | M | Panel chrome: button hierarchy, close at the leading edge, and a drag-to-resize edge with a grip |
-| 5.3 | 5/5/6 | M | "Watch this question": re-run a thread and show what changed (ResearchDiff) |
-| 5.3 | 5/6/5 | S | One citation scan per turn: a spans-only validator entry point, and stop running the URL regex where `literalURLs` is never read |
-| 5.3 | 6/5/5 | M | ⌘F find in the thread, with match highlighting and next/previous |
-| 5.3 | 5/6/5 | S | Diagnostics: 'Copy diagnostic report' in About and `vervellum --doctor` on Linux |
-| 5.0 | 5/5/5 | M | Pin and rename threads |
-| 5.0 | 5/5/5 | S | ⌘1…⌘9 open the last answer's source n |
-| 5.0 | 5/5/5 | M | Linux: rebuild only the running turn's box on a text-only update and coalesce idle sources per frame |
-| 5.0 | 6/4/5 | M | Token usage meter per turn and per thread (stream_options.include_usage) |
-| 5.0 | 5/5/5 | S | Library backup and restore: export/import the whole threads.json from Settings, with the version guard |
-| 4.7 | 5/4/5 | S | ⌘⇧C copies the last answer with its sources |
-| 4.7 | 5/4/5 | M | "Since last time": a comparison strip when a question is asked again |
-| 4.7 | 5/4/5 | M | Streaming tail renderer: freeze the parsed prefix and re-parse only the last paragraph |
-| 4.7 | 5/5/4 | S | HTTPTransport.readLines: avoid shifting the buffer once per line |
-| 4.7 | 6/4/4 | M | Reading window: open the thread in a normal resizable window (⌘⇧O) for long reads |
-| 4.3 | 4/4/5 | S | `/sources` — evidence-only mode that stops after search |
-| 4.3 | 5/4/4 | M | Source-age tint: colour each citation by how old the page is |
-| 4.3 | 4/4/5 | S | Stage-aware streaming caret and a completion tick in the trail that matches the verdict health |
-| 4.3 | 4/5/4 | S | Memoise `ComposerView.height` and stop invalidating the text view on every SwiftUI update |
-| 4.3 | 4/4/5 | S | ⌘P print / Save as PDF, and the macOS share sheet for a turn |
-| 4.0 | 3/4/5 | S | Per-block fade-in as the answer arrives (no per-token motion) |
-| 4.0 | 4/4/4 | M | Stream answer deltas to the front ends instead of whole-turn snapshots, so the engine appends in place |
-| 3.7 | 4/3/4 | S | Source monograms (deterministic domain avatars, no network) |
-| 3.3 | 3/3/4 | S | Empty state with a small SF Symbol composition and the pipeline in three glyphs |
-| 3.3 | 4/3/3 | M | Notification Center: the first sentence of the answer when a run finishes while the panel is hidden |
-| 3.0 | 3/3/3 | S | Thread tags and a `tag:` filter in history |
-| 3.0 | 3/3/3 | S | A seal for a fully-supported answer — and a "look for evidence against this" follow-up to keep it honest |
-| 2.7 | 3/2/3 | L | Localisation readiness: String Catalog, plural rules, locale-aware dates and a Core localisation seam |
-| 2.0 | 2/2/2 | S | /about prints the pipeline as ASCII; /coin refuses to research coin flips |
+Accept: Verify double/triple digits, 140% text and long wrapped items.
 
-## Execution rules
+Where: Vervellum/Views/MarkdownText.swift:387. Earlier effort: S.
 
-- Preserve numeric-only citations, uncited-verdict rejection, explicit uncertainty,
-  sequential answer/assessment, and visible context trimming.
-- Keep Core portable: Foundation/Dispatch only, no UI imports or main-actor hops.
-- Decode new `ResearchTurn` fields with tolerant defaults (`decodeIfPresent`), not
-  synthesized required keys. Test old archives and lossless `CodingKeys` round trips;
-  breaking both the primary and same-shaped backup can silently reset the library.
-- Keep credentials in existing secret stores, foreign errors sanitized, and research
-  redirects refused. Updater fetching is a separate credential-free policy.
-- Fix bugs test-first. Put independent changes in separate branches/PRs; record
-  platform limitations and remaining validation rather than claiming parity.
-- Earlier Linux UI work was deferred for missing GTK headers. A local sysroot/Xvfb
-  is now available, but neither it nor hosted Mac CI replaces desktop QA. Exports,
-  History keys, full-screen placement, and accessibility still need real sessions.
-- Do not widen scope into a redesign until reader stability, persistence, and trust
-  failures are covered. Start with A01, A07, A12–A15/A17; then A19/A20/A25–A28.
-- Preserve this queue when merging later analyses: consolidate duplicates, retain
-  distinct acceptance criteria, and move implemented items to merge/validation work.
-- The Fable patches (#53–#68) are independent of each other and merge cleanly onto
-  `main` at `8652ea8` (test-merged); the pairs that duplicate an Astra/k3 patch are
-  listed under *Fable patches*. Merge #2 (or #21) first so the test target compiles.
-- When a Fable status paragraph says "covered", the acceptance criteria above it still
-  name what is left; do not delete the task until every clause is met.
+### A75c · Use the existing Escape key constant
+
+General issues — nice-to-have
+
+HotkeyRecorder compares keyCode against the literal 53.
+
+Suggested fix: Use the existing named Escape definition in the touched recorder path.
+
+Accept: Keep recording/cancellation behavior unchanged.
+
+Where: Vervellum/Settings/HotkeyRecorder.swift:69. Earlier effort: S.
+
+### A75d · Avoid repeated login-item status probes
+
+Performance problems, stuttering, and jank — nice-to-have
+
+General-pane renders query SMAppService.mainApp.status. The cost needs measurement, not an assumed latency claim.
+
+Suggested fix: Sample on presentation or cache with correct invalidation if profiling shows repeated service work.
+
+Accept: Verify enabling/disabling login launch and external status changes.
+
+Where: Vervellum/Model/Preferences.swift; Vervellum/Settings/GeneralView.swift. Earlier effort: S.
+
+### A76 · Linux and documentation smalls remainder
+
+General issues — nice-to-have
+
+The quit GAction exists internally but is undiscoverable: add `vervellum --quit`
+and a `[Desktop Action quit]` whose identifier matches the GApplication action name
+(the desktop file currently has only toggle/install-shortcut), plus a README line
+(S18/B59); scope README's Up/Down recall and "Threads are searchable" claims per
+platform until Linux has them (B56, with A40). The double synchronous `secret-tool`
+spawn on empty renders is resolved by #132's cached probe; B108's backend recording
+is carried by A17.
+
+Suggested fix: CLI flag plus desktop action wired to the existing GAction; README
+platform scoping.
+
+Accept: a user can quit the resident service without knowing D-Bus; README claims
+match each platform's actual features.
+
+Where: Sources/VervellumKit/Linux/LinuxApp.swift:272–276; packaging/debian/ch.lkmc.Vervellum.desktop:13. Quit effort: 2 hours (S18).
+
+Earlier effort: S.
+
+### A77c · Preserve a dragged panel position
+
+Visual issues and layout problems — nice-to-have
+
+Showing an already-open panel re-places it, losing header-dragged positioning.
+
+Suggested fix: Skip placement while already open unless the target display changes; define session versus persisted placement explicitly.
+
+Accept: Verify repeated summon, pointer-screen changes and short/multiple displays.
+
+Where: Vervellum/Panel/PanelController.swift:113. Earlier effort: S.
+
+### A77d · Re-place the panel after display changes
+
+Visual issues and layout problems — nice-to-have
+
+No didChangeScreenParametersNotification observer repairs an edge layout after a display disappears.
+
+Suggested fix: Revalidate an open panel's geometry on screen-parameter changes.
+
+Accept: Unplugging a display leaves the panel visible and usable, without claiming Wayland positioning parity.
+
+Where: Vervellum/Panel/PanelController.swift. Earlier effort: S.
+
+### A78 · Stamp the Linux binary's version at build time
+
+General issues — nice-to-have
+
+`AppIdentity.version` falls back to the hard-coded `0.1.0` whenever `Bundle.main`
+lacks `CFBundleShortVersionString`, which is always the case for the Linux
+executable. The tag's version reaches the package name and `DEBIAN/control` but
+never the binary, so a released `.deb` reports `0.1.0` forever from `--version`,
+the User-Agent and the update comparison (S10; the updater UI is macOS-only, so
+this is a diagnosis problem, not a demonstrated Linux update loop).
+
+Suggested fix: generate a small Swift source (or resource) from `VERSION` in
+`build-deb.sh` before `swift build`, have `AppIdentity` read it on Linux, and fail
+a release build when the stamp is missing.
+
+Accept: `vervellum --version` in the installed package prints the tag; the update
+check compares the real version; a local `swift build` without a stamp still runs
+and says so.
+
+Where: Sources/VervellumKit/Core/Platform/AppIdentity.swift:23–29; packaging/build-deb.sh:11,33. Effort: half a day (S10).
+
+Earlier effort: S.
+
+### A80 · Validate persisted attachment sizes
+
+Bugs — nice-to-have
+
+`Attachment` accepts a negative decoded `byteCount`, so a damaged archive can display
+nonsensical sizes and corrupt accounting even though the rest of the turn is
+recoverable.
+
+Suggested fix: clamp legacy negative values to zero or discard only the invalid
+attachment while preserving the containing turn, with tolerant-decoding tests.
+
+### A81 · Decode declared legacy page encodings accurately
+
+Bugs — nice-to-have
+
+At `Sources/VervellumKit/Core/Research/PageReader.swift:450–470`, `DirectPageReader`
+tries UTF-8 before the declared charset, maps Windows-1252 to ISO-8859-1, and maps
+explicit UTF-16LE/UTF-16BE declarations to the BOM-sensitive native UTF-16 decoder.
+Older pages can therefore arrive with garbled punctuation and euro characters, while
+BOM-less UTF-16 containing ASCII can be accepted as NUL-filled UTF-8 and yield no useful
+page text. This weakens the evidence available to every research mode that reads them.
+
+Suggested fix: honor recognized declared charsets before the generic UTF-8 fallback;
+use `.windowsCP1252`, `.utf16LittleEndian`, and `.utf16BigEndian`, with byte fixtures
+that distinguish each encoding. Rough effort: about one hour.
+
+### A82 · Measure the assessment stage rather than the whole turn
+
+General issues — nice-to-have
+
+At `Sources/VervellumKit/Core/Research/ResearchRunner.swift:1788–1800`, the assessment
+trace records elapsed time from the beginning of the research turn, so its duration
+includes planning, search, page reading, and answer generation. Maintainers diagnosing
+a slow assessment provider are shown a plausible but incorrect stage time; end users
+are unaffected.
+
+Suggested fix: capture a monotonic stage start immediately before assessment, as the
+revision path already does, and report only the assessment interval. Rough effort:
+under one hour.
+
+### A83 · Evict idle research sessions
+
+Performance problems, stuttering, and jank — nice-to-have
+
+At `Vervellum/Research/ResearchEngine.swift:50–54,108–126,181–201`, `ResearchEngine`
+retains a full `ResearchSession` for every thread opened during the process lifetime.
+Repeated `/new` commands alone create an unbounded map of blank idle sessions, while
+long-running menu-bar users accumulate duplicate in-memory thread state.
+
+Suggested fix: evict inactive sessions after they become idle, have no returned queued
+questions, and their latest thread snapshot is durable; always retain running, queued,
+and currently active sessions. Rough effort: about half a day.
+
+### S07 · Match key hints to the submit preference
+
+Usability: speed, convenience, clarity — nice-to-have
+
+Empty-state Return/Shift-Return advice is hard-coded and contradicts the disabled Return-to-send preference. Platform-specific help alone does not resolve preference-sensitive wording.
+
+Suggested fix: Derive empty-state and relevant help hints from the submit preference.
+
+Accept: Check both preference settings and each platform's actual submit chord.
+
+Where: Vervellum/Views/EmptyStateView.swift:39. Effort: 1 hour.
+
+### S08 · Clear stale preview state
+
+Bugs — nice-to-have
+
+Dismissing the Settings preview through another panel-hide path can leave the preview toggle on. Runtime reproduction remains open.
+
+Suggested fix: Clear preview state on panel-hide notification as well as Settings close.
+
+Accept: Toggle preview, dismiss with the summon shortcut, and verify the control matches the visible panel.
+
+Where: Vervellum/Settings/GeneralView.swift:192–202. Effort: 1 hour.
+
+### S23 · Distinguish denied Keychain access from missing keys
+
+Usability: speed, convenience, clarity — nice-to-have
+
+A denied ad-hoc build's Keychain prompt is cached as unreadable, so stored credentials look absent until relaunch.
+
+Suggested fix: Expose access-denied versus absent states and an explicit retry. Do not introduce repeated unsolicited authorization prompts.
+
+Accept: Verify denied, restored and absent-key states. Keep the ad-hoc signing limitation documented until authenticated distribution exists.
+
+Where: Vervellum/Security/KeychainStore.swift:113,176–186. Effort: half a day.
+
+### S32 · Scope warnings to the answer or draft they describe
+
+Bugs — nice-to-have
+
+A clean revision can retain generic invalid-citation or URL warnings from the replaced draft. The same notice can also originate in assessment references, so clearing it merely because the displayed answer is clean would lose information.
+
+Suggested fix: Track draft, assessment and displayed-answer validation separately. Revalidate replacement prose and label retained draft warnings by scope; never clear the whole notice list.
+
+Accept: Cover clean revisions of invalid drafts, assessment-only invalid references, invalid displayed prose, and failed/discarded revisions that must preserve the original answer.
+
+Where: Sources/VervellumKit/Core/Research/ResearchRunner.swift:1664,1680–1687,2036–2058; ResearchModels.swift:633–637. Effort: half a day.
+
+### S33 · Confirm image fallback before disabling vision
+
+Bugs — nice-to-have
+
+Any image-bearing HTTP 400 can be attributed to missing vision, even when a wrong model name caused the failure. This costs a retry and can suppress later images for that provider.
+
+Suggested fix: Record image rejection only after the no-image retry succeeds; retain sanitized errors and per-provider state.
+
+Accept: Test both successful image fallback and a 400 that also fails without images.
+
+Where: Sources/VervellumKit/Core/Research/ChatCompletionsClient.swift:302–317. Effort: 2 hours.
+
+### R01 · Retain a first-use selection seed
+
+Bugs — nice-to-have
+
+showWithSelection posts the composer-seed notification synchronously after show. On first construction, SwiftUI may not yet have installed its onReceive observer; later presses use the retained hosting view. Confidence is medium; verify on a Mac.
+
+Suggested fix: Carry the seed as state or a pending slot consumed on appearance, rather than a fire-and-forget notification.
+
+Accept: First use after launch and later use both seed the composer, without sending automatically or replacing an existing draft.
+
+Where: Vervellum/Panel/PanelController.swift:88–93; Vervellum/Views/PanelRootView.swift:160.
+
+### R02 · Make checkpoint-starvation tests load-independent
+
+General issues — nice-to-have
+
+The checkpoint test assumes a 0.05-second debounce has fired within 0.5 seconds. The concurrent review observed three parallel-run failures that passed on retry/serially; this review also hit that timing assertion once.
+
+Suggested fix: Use a bounded expectation while updates continue, then flush and verify the final contents. Do not stop the producer before checking the checkpoint: that would let a debounce-reset regression pass.
+
+Accept: The test must still fail if continuous snapshots postpone every checkpoint.
+
+Where: Tests/VervellumKitTests/ThreadArchiveTests.swift:263–276, assertion :273.
+
+### R03 · Give notices meaningful visual tones
+
+Aesthetics and theming — nice-to-have
+
+NoticesView uses the same mixed-color warning triangle for every TurnNotice, including answerRegathered and other informational events.
+
+Suggested fix: Map notices to a tone and symbol, reused by native and optionally Pango rendering.
+
+Accept: Retain written labels, uncertainty and accessible distinctions; informational styling must not become a truth seal.
+
+Where: Vervellum/Views/TurnView.swift:248; PangoMarkup.notices.
+
+### R04 · Normalize common publication-date spellings
+
+Visual issues and layout problems — nice-to-have
+
+Source rows and previews display provider timestamps verbatim, so a full ISO timestamp competes with compact metadata.
+
+Suggested fix: Normalize recognized ISO-8601 shapes once in Core to a short date; preserve unparseable values as written.
+
+Accept: Keep formatting portable and Linux formatter usage thread-safe. Do not invent dates.
+
+Where: Vervellum/Views/SourcesView.swift:163–165; SourcePreview.swift.
+
+### R05 · Complete model command arguments
+
+Missing features — nice-to-have
+
+Command completion stops at the first space, so /model cannot suggest the provider names it accepts.
+
+Suggested fix: Add argument-aware completion for commands that take arguments, driven by ProviderSettings.modelProfiles.
+
+Accept: Complete configured names without provider calls or exposing credentials; keep command-word, keyboard and IME behavior.
+
+Where: Sources/VervellumKit/Core/Text/ComposerCommand.swift:136.
+
+### R06 · Profile large-library search before hiding results
+
+Performance problems, stuttering, and jank — nice-to-have
+
+ThreadLibrary scans questions and full answers on each query edit, up to 2,000 threads. The walk is allocation-light, not indexed or debounced. Open #144 adds searchable fields, not an index or debounce.
+
+Suggested fix: Profile a roughly 150 ms debounce or an index with correct invalidation. The concurrent review suggested questions-first with an answer fallback only for a small question set; that changes result completeness and needs an explicit scope decision, not a silent optimization.
+
+Accept: Preserve answer matches, ordering and live library changes unless the reader chooses a narrower search scope.
+
+Where: Sources/VervellumKit/Core/Store/ThreadLibrary.swift:118–126; Vervellum/Views/HistoryView.swift:25.
+
+### G01 · Let Linux level controls wrap
+
+Visual issues and layout problems — nice-to-have
+
+Four level buttons and separators occupy one non-wrapping row in the 560 px
+window. Clipping at large text or narrower widths is a source-derived risk,
+not a reproduced GUI result.
+
+Suggested fix: Verify the layout, then try a GtkFlowBox or grouped wrapping layout
+that preserves the selector's semantic groups and separators.
+
+Accept: 140% text and narrow windows retain readable labels and reachable controls.
+
+Where: Sources/VervellumKit/Linux/LinuxPanel.swift:181–209.
+
+### G02 · Refresh relative history dates while visible
+
+Usability: speed, convenience, clarity — nice-to-have
+
+History's relative dates are recomputed only on render, so an open list can keep
+an old age label.
+
+Suggested fix: If touching A28's rows, use a shared periodic minute tick while
+History is visible rather than a timer per row.
+
+Accept: Labels advance without interfering with selection, reading or focus.
+
+Where: Vervellum/Views/HistoryView.swift:154.
+
+### G03 · Apply shared palette presets on Linux
+
+Aesthetics and theming — nice-to-have
+
+The macOS palette presets live in Core, but Linux's hand-written stylesheet does
+not consume them.
+
+Suggested fix: Map the selected shared palette into GTK color variables, keeping
+the existing stylesheet as fallback and respecting the actual appearance scheme.
+
+Accept: Both schemes, contrast and live preference changes need GUI verification.
+Use the existing preference, not another Linux-only theme store.
+
+Where: Sources/VervellumKit/Core/Platform/ThemePresets.swift; LinuxPanel.stylesheet.
+
+### G04 · Make Linux level selection theme-independent
+
+Aesthetics and theming — nice-to-have
+
+The selected level uses a bullet, bold text and a CSS class. A theme that ignores
+the class leaves a subtle signal.
+
+Suggested fix: Add a checkmark or a real checked-state style and accessible state,
+without relying on color or a particular GTK theme.
+
+Accept: Selection stays clear under Adwaita variants and enlarged text.
+
+Where: Sources/VervellumKit/Linux/LinuxPanel.swift:213–225.
+
+### G05 · Compare the passages a revision changed
+
+Novel, delightful, or quirky ideas worth trying — nice-to-have
+
+Open #142 exposes the saved draft. A changed-passages view could avoid comparing
+two complete walls of text.
+
+Suggested fix: Diff draftAnswer against the displayed answer locally, using the
+existing Markdown views. A line-based diff is a starting point, not a claim of
+sentence-level alignment.
+
+Accept: No model call; bound work on long answers, retain both complete versions,
+and say which prose the findings assessed.
+
+### N01 · Flag a single-domain evidence set
+
+Novel, delightful, or quirky ideas worth trying — nice-to-have
+
+All cited sources can come from one domain without a visible cue.
+
+Suggested fix: Show an accessible monoculture flag from existing source metadata; do not equate domain diversity with truth.
+
+Accept: Use existing data and explicit user actions; no silent model call or privacy expansion.
+
+Historical score: 7.3 · 7/7/8 · S.
+
+### N02 · Show whether a plan sought counter-evidence
+
+Novel, delightful, or quirky ideas worth trying — nice-to-have
+
+The prompt asks for disconfirming research, but the plan has no corresponding visible badge.
+
+Suggested fix: Try a purpose-based cue/tag without claiming the model actually disproved anything.
+
+Accept: Use existing data and explicit user actions; no silent model call or privacy expansion.
+
+Historical score: 7.7 · 7/7/9 · M.
+
+### N03 · Publish running-turn state independently
+
+Novel, delightful, or quirky ideas worth trying — nice-to-have
+
+Whole-thread publication can trigger avoidable view work during streaming.
+
+Suggested fix: Profile a per-turn ObservableObject in the macOS shell; republish the thread only at boundaries if that wins. No Combine in Core.
+
+Accept: Use existing data and explicit user actions; no silent model call or privacy expansion.
+
+Historical score: 7.3 · 8/7/7 · M.
+
+### N04 · Flush dismissals without blocking the interface
+
+Novel, delightful, or quirky ideas worth trying — nice-to-have
+
+Synchronous archive flush can delay hiding the panel.
+
+Suggested fix: Evaluate async dismissal flush while keeping a synchronous termination checkpoint and durable final snapshot ordering.
+
+Accept: Use existing data and explicit user actions; no silent model call or privacy expansion.
+
+Historical score: 6.3 · 6/7/6 · S.
+
+### N05 · Keep an unread-result indicator
+
+Novel, delightful, or quirky ideas worth trying — nice-to-have
+
+A completion glyph need not say whether the result was read.
+
+Suggested fix: Try a small unread dot until the reader opens the result; expose its state accessibly.
+
+Accept: Use existing data and explicit user actions; no silent model call or privacy expansion.
+
+Historical score: 6.3 · 6/6/7 · S.
+
+### N06 · Open a dedicated reading window
+
+Novel, delightful, or quirky ideas worth trying — nice-to-have
+
+Long answers may be easier to read in an ordinary resizable window.
+
+Suggested fix: Offer an explicit reading window, such as Command-Shift-O, over the same thread data without another run.
+
+Accept: Use existing data and explicit user actions; no silent model call or privacy expansion.
+
+Historical score: 4.7 · 6/4/4 · M.
+
+### N07 · Prepare localization before translating
+
+Novel, delightful, or quirky ideas worth trying — nice-to-have
+
+Strings, plural rules and date presentation are not organized for localization.
+
+Suggested fix: Plan a String Catalog, locale-aware dates and a portable Core localization seam before the first translation.
+
+Accept: Use existing data and explicit user actions; no silent model call or privacy expansion.
+
+Historical score: 2.7 · 3/2/3 · L.
+
+### N08 · Open cited sources by number key
+
+Novel, delightful, or quirky ideas worth trying — nice-to-have
+
+The last answer's sources lack direct number-key access.
+
+Suggested fix: Evaluate Command-1 through Command-9 over app-owned source numbers; coordinate existing panel shortcuts and grouping behavior.
+
+Accept: Use existing data and explicit user actions; no silent model call or privacy expansion.
+
+Historical score: 6.0 · 6/6/6 · S; alternate 5.0 · 5/5/5 · S.
+
+### N09 · Avoid redundant citation validation scans
+
+Novel, delightful, or quirky ideas worth trying — nice-to-have
+
+Some consumers need spans but still pay for URL scanning.
+
+Suggested fix: Profile a spans-only validator entry point and one scan per answer change; preserve complete validation on every trust boundary.
+
+Accept: Use existing data and explicit user actions; no silent model call or privacy expansion.
+
+Historical score: 5.3 · 5/6/5 · S.
+
+### N10 · Deliver streaming deltas instead of whole turns
+
+Novel, delightful, or quirky ideas worth trying — nice-to-have
+
+Every streamed callback can copy a growing turn.
+
+Suggested fix: Profile append-in-place front-end delivery against coalesced snapshots before changing ownership or cancellation behavior.
+
+Accept: Use existing data and explicit user actions; no silent model call or privacy expansion.
+
+Historical score: 4.0 · 4/4/4 · M.
+
+### N11 · Match completion styling to evidence state
+
+Novel, delightful, or quirky ideas worth trying — nice-to-have
+
+A stage-aware caret/tick could make completion easier to scan.
+
+Suggested fix: Use existing stages/verdicts with a static reduced-motion alternative. Never imply verified truth from completion alone.
+
+Accept: Use existing data and explicit user actions; no silent model call or privacy expansion.
+
+Historical score: 4.3 · 4/4/5 · S.
+
+### N12 · Group and filter history through the composer
+
+Novel, delightful, or quirky ideas worth trying — nice-to-have
+
+The earlier type-to-filter proposal included day grouping beyond in-list navigation.
+
+Suggested fix: Offer composer-driven filtering and day groups, reusing A28's arrows/Return without destroying a draft.
+
+Accept: Use existing data and explicit user actions; no silent model call or privacy expansion.
+
+Historical score: 8.0 · 8/8/8 · M.
+
+### N13 · Step between answer citations by keyboard
+
+Novel, delightful, or quirky ideas worth trying — nice-to-have
+
+Readers have no direct next/previous citation traversal while comparing a long answer to its sources.
+
+Suggested fix: Evaluate Control-bracket keys, or Command-arrow only outside the composer, to select the next/previous app-owned citation in MarkdownText/AnswerTextView.
+
+Accept: Do not intercept composer editing; use existing citation data without another model call.
+
+### N14 · Show waiting-question counts in the status menu
+
+Novel, delightful, or quirky ideas worth trying — nice-to-have
+
+Waiting follow-ups are invisible while the panel is hidden, unlike the busy-run glyph.
+
+Suggested fix: Read queue state when building the menu and observe queue changes, not only busy-state transitions. Label whether the count is active-thread or all-session.
+
+Accept: Use existing AppDelegate/engine data; no question text or extra provider calls are needed.
+
+Where: Vervellum/App/AppDelegate.swift:387.

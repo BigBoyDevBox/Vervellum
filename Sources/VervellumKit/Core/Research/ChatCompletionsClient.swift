@@ -492,14 +492,44 @@ final class ChatCompletionsClient {
         objectRange(in: text, from: text.startIndex).map { String(text[$0]) }
     }
 
+    private static let objectRecoveryStartLimit = 64
+    private static let objectRecoveryCharacterLimit = 8_000_000
+
     /// The range of the first brace-balanced run at or after `from`.
+    ///
+    /// Each opening brace gets its own attempt. A model can leave a brace open in a
+    /// prose preamble and then emit a complete JSON object; treating that first brace as
+    /// the only possible start would hide the valid reply that follows it. Both limits
+    /// are defensive: the HTTP response itself is smaller, and retrying every unmatched
+    /// brace in a corrupt response would otherwise make this scan quadratic.
     static func objectRange(in text: String, from: String.Index) -> Range<String.Index>? {
-        guard let start = text[from...].firstIndex(of: "{") else { return nil }
+        var searchStart = from
+        var startsRemaining = objectRecoveryStartLimit
+        var charactersRemaining = objectRecoveryCharacterLimit
+        while startsRemaining > 0,
+              charactersRemaining > 0,
+              let start = text[searchStart...].firstIndex(of: "{") {
+            startsRemaining -= 1
+            if let range = balancedObjectRange(in: text, startingAt: start,
+                                               remaining: &charactersRemaining) {
+                return range
+            }
+            searchStart = text.index(after: start)
+        }
+        return nil
+    }
+
+    private static func balancedObjectRange(
+        in text: String,
+        startingAt start: String.Index,
+        remaining: inout Int
+    ) -> Range<String.Index>? {
         var depth = 0
         var inString = false
         var escaped = false
         var index = start
-        while index < text.endIndex {
+        while index < text.endIndex, remaining > 0 {
+            remaining -= 1
             let character = text[index]
             if escaped {
                 escaped = false

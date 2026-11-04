@@ -117,35 +117,7 @@ echo "==> Resolving dependencies"
 # libglib2.0-0 to libglib2.0-0t64 and libcurl4 to libcurl4t64, so a Depends line copied
 # from a 22.04 example produces an uninstallable package with no build-time error.
 # dpkg-shlibdeps reads the actual ELF and gets it right per release.
-DEPENDS=""
-if command -v dpkg-shlibdeps >/dev/null; then
-    workdir="$(mktemp -d)"
-    mkdir -p "$workdir/debian"
-    # A real stanza, not an empty file. dpkg-shlibdeps parses debian/control to find the
-    # binary package it is resolving for, and gives up on one it cannot read.
-    cat > "$workdir/debian/control" <<'SHLIBS'
-Source: vervellum
-Section: utils
-Priority: optional
-Maintainer: L-K-M <noreply@lkmc.ch>
-
-Package: vervellum
-Architecture: any
-Description: Hotkey-summoned research panel
-SHLIBS
-    ( cd "$workdir" && dpkg-shlibdeps -O --ignore-missing-info "$STAGE/usr/bin/vervellum" \
-        2>/dev/null || true ) > "$workdir/deps" || true
-    DEPENDS="$(sed -n 's/^shlibs:Depends=//p' "$workdir/deps" | head -1)"
-    rm -rf "$workdir"
-fi
-if [ -z "$DEPENDS" ]; then
-    echo "    dpkg-shlibdeps produced nothing; falling back to a minimal GTK dependency" >&2
-    DEPENDS="libgtk-4-1, libglib2.0-bin"
-else
-    # libglib2.0-bin supplies `gapplication`, which the keyboard shortcut runs. It is
-    # not linked, so shlibdeps cannot know about it.
-    DEPENDS="$DEPENDS, libglib2.0-bin"
-fi
+DEPENDS="$(bash "$ROOT/scripts/deb-dependencies.sh" "$STAGE/usr/bin/vervellum")"
 
 INSTALLED_SIZE="$(du -ks "$STAGE" | cut -f1)"
 

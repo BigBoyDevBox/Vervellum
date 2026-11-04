@@ -82,6 +82,10 @@ final class ResearchSessionTests: XCTestCase {
         }
     }
 
+    private final class DataCapture {
+        var value: Data?
+    }
+
     /// Wraps a `StubRunner` and records the history each run was handed.
     private final class RecordingRunner: ResearchRunning {
         let inner: StubRunner
@@ -162,6 +166,44 @@ final class ResearchSessionTests: XCTestCase {
             makeRunner: { _, _, _ in runner },
             deliver: deliver,
             after: immediateAfter)
+    }
+
+    private func makeRetrySession(
+        attachment: Attachment,
+        storedData: Data,
+        deliver: @escaping (@escaping () -> Void) -> Void
+    ) throws -> (session: ResearchSession, capture: DataCapture, turnID: UUID) {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("vervellum-retry-\(UUID().uuidString)")
+        addTeardownBlock {
+            try? FileManager.default.removeItem(at: directory)
+        }
+        let store = AttachmentStore(directory: directory)
+        try store.write(storedData, for: attachment)
+
+        var failed = ResearchTurn(question: "retry this")
+        failed.level = .standard
+        failed.stage = .failed
+        failed.failure = "stub failure"
+        failed.attachments = [attachment]
+        var thread = ResearchThread()
+        thread.turns = [failed]
+
+        let runner = StubRunner()
+        let capture = DataCapture()
+        let session = ResearchSession(
+            thread: thread,
+            preferences: CorePreferences(store: MemorySettingsStore()),
+            secrets: EphemeralSecretStore(),
+            logSink: SilentLog(),
+            attachmentStore: store,
+            makeRunner: { _, _, bytes in
+                capture.value = bytes(attachment)
+                return runner
+            },
+            deliver: deliver,
+            after: immediateAfter)
+        return (session, capture, failed.id)
     }
 
     // MARK: Tests
@@ -413,6 +455,46 @@ final class ResearchSessionTests: XCTestCase {
         XCTAssertEqual(retryRunner.runCount, 1)
         XCTAssertEqual(retried.thread.turns.count, 1)
         XCTAssertEqual(retried.thread.turns.first?.stage, .complete)
+    }
+
+    func testRetryRestoresOnlyBytesThatStillMatchTheirRecord() throws {
+        let png = Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A])
+        let valid = Attachment(kind: .image, name: "shot.png", mediaType: "image/png",
+                               byteCount: png.count)
+        let validHops = HopQueue()
+        let restored = try makeRetrySession(attachment: valid, storedData: png,
+                                            deliver: validHops.deliver)
+
+        restored.session.retry(restored.turnID)
+
+        XCTAssertEqual(restored.session.thread.turns.last?.attachments, [valid])
+        XCTAssertFalse(restored.session.thread.turns.last?.notices.contains(.attachmentMissing)
+                       ?? true)
+        XCTAssertEqual(restored.capture.value, png)
+        validHops.expect(2)
+        validHops.drain()
+
+        let mismatches: [(String, Attachment)] = [
+            ("size", Attachment(kind: .image, name: "shot.png", mediaType: "image/png",
+                                byteCount: png.count - 1)),
+            ("media type", Attachment(kind: .image, name: "shot.png",
+                                      mediaType: "image/jpeg", byteCount: png.count)),
+            ("kind", Attachment(kind: .text, name: "shot.png", mediaType: "image/png",
+                                byteCount: png.count)),
+        ]
+        for (label, record) in mismatches {
+            let hops = HopQueue()
+            let setup = try makeRetrySession(attachment: record, storedData: png,
+                                             deliver: hops.deliver)
+            setup.session.retry(setup.turnID)
+
+            XCTAssertTrue(setup.session.thread.turns.last?.attachments.isEmpty == true, label)
+            XCTAssertTrue(setup.session.thread.turns.last?.notices.contains(.attachmentMissing)
+                          == true, label)
+            XCTAssertNil(setup.capture.value, label)
+            hops.expect(2)
+            hops.drain()
+        }
     }
 
     func testLocalTurnsStayOutOfHistoryAndPersistence() {
