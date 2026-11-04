@@ -59,29 +59,29 @@ final class HotkeyBindingTests: XCTestCase {
     func testRecordedEventsUseCarbonModifierBitsForValidation() throws {
         let original = HotkeyBinding(keyCode: 0, modifiers: 0,
                                      keyLabel: "A", enabled: true)
-        let shiftEvent = try XCTUnwrap(NSEvent.keyEvent(with: .keyDown,
-                                                        location: .zero,
-                                                        modifierFlags: [.shift],
-                                                        timestamp: 0,
-                                                        windowNumber: 0,
-                                                        context: nil,
-                                                        characters: "A",
-                                                        charactersIgnoringModifiers: "a",
-                                                        isARepeat: false,
-                                                        keyCode: 0))
-        let commandEvent = try XCTUnwrap(NSEvent.keyEvent(with: .keyDown,
-                                                          location: .zero,
-                                                          modifierFlags: [.command],
-                                                          timestamp: 0,
-                                                          windowNumber: 0,
-                                                          context: nil,
-                                                          characters: "a",
-                                                          charactersIgnoringModifiers: "a",
-                                                          isARepeat: false,
-                                                          keyCode: 0))
+        func event(_ modifiers: NSEvent.ModifierFlags,
+                   characters: String = "a") throws -> NSEvent {
+            try XCTUnwrap(NSEvent.keyEvent(with: .keyDown,
+                                           location: .zero,
+                                           modifierFlags: modifiers,
+                                           timestamp: 0,
+                                           windowNumber: 0,
+                                           context: nil,
+                                           characters: characters,
+                                           charactersIgnoringModifiers: "a",
+                                           isARepeat: false,
+                                           keyCode: 0))
+        }
+
+        let shiftEvent = try event([.shift], characters: "A")
+        let commandEvent = try event([.command])
+        let controlEvent = try event([.control])
+        let optionEvent = try event([.option])
 
         XCTAssertFalse(original.updated(from: shiftEvent).isValid)
         XCTAssertTrue(original.updated(from: commandEvent).isValid)
+        XCTAssertTrue(original.updated(from: controlEvent).isValid)
+        XCTAssertTrue(original.updated(from: optionEvent).isValid)
     }
 
     func testJSONRoundTrip() {
