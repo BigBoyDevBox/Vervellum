@@ -64,7 +64,8 @@ enum SearchProviderKind: RawRepresentable, Codable, CaseIterable, Identifiable, 
         case .unsupported(let rawValue):
             let cleaned = rawValue.unicodeScalars.map { scalar -> String in
                 if CharacterSet.controlCharacters.contains(scalar)
-                    || CharacterSet.newlines.contains(scalar) {
+                    || CharacterSet.newlines.contains(scalar)
+                    || scalar.properties.generalCategory == .format {
                     return " "
                 }
                 return String(scalar)
