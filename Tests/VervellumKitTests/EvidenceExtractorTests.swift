@@ -37,6 +37,20 @@ final class EvidenceExtractorTests: XCTestCase {
         XCTAssertEqual(EvidenceExtractor.sources(from: [first, second]).count, 1)
     }
 
+    func testURLVariantsAcrossSearchesShareOneNumber() {
+        let first = "https://a.example/page?utm_source=first#section"
+        let results: [Any] = [
+            ["url": first, "title": "First spelling"],
+            ["url": "https://a.example/page", "title": "Same page"],
+            "Same page: https://a.example/page?utm_campaign=second",
+            ["url": "https://a.example/page?id=2", "title": "Different page"],
+        ]
+        let sources = EvidenceExtractor.sources(from: results, startingAt: 5)
+        XCTAssertEqual(sources.map(\.number), [5, 6])
+        XCTAssertEqual(sources.map(\.url), [first, "https://a.example/page?id=2"])
+        XCTAssertEqual(sources.first?.title, "First spelling")
+    }
+
     /// Search rank is not a diversity policy: one well-ranked domain can fill the top
     /// of the list with several spellings of the same page, which the answer then
     /// reads as independent agreement. The cap keeps any single voice a minority, and
@@ -157,6 +171,20 @@ final class EvidenceExtractorTests: XCTestCase {
         XCTAssertFalse(sources[0].snippet.contains("https://"))
         XCTAssertEqual(sources[1].title, "Obama's age")
         XCTAssertTrue(sources[1].snippet.contains("1961"))
+    }
+
+    /// Prose backends use the same parenthesized Wikipedia paths as structured ones.
+    /// The closing parenthesis is part of this address, not punctuation around it.
+    func testKeepsParenthesesInAProseURL() {
+        let planet = "https://en.wikipedia.org/wiki/Mercury_(planet)"
+        let prose = "Mercury (planet)\n\(planet)\nThe smallest planet in the Solar System."
+        let payload: [String: Any] = ["content": [["type": "text", "text": prose]]]
+
+        let source = EvidenceExtractor.sources(from: [payload]).first
+
+        XCTAssertEqual(source?.url, planet)
+        XCTAssertFalse(source?.snippet.contains("https://") ?? true,
+                       "the complete repaired address should be removed from the snippet")
     }
 
     /// A list with no blank lines between entries still yields one hit per link.

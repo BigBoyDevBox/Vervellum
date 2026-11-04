@@ -1,6 +1,17 @@
 import AppKit
 
 extension NSApplication {
+
+    /// Empty on purpose. `.activateAllWindows` raises every window belonging to the app
+    /// Vervellum is returning to, not only the workspace the user left in front.
+    static let vervellumRestoreActivationOptions: NSApplication.ActivationOptions = []
+
+    /// Cooperatively returns focus without rearranging the other application's windows.
+    func restoreActivation(to application: NSRunningApplication) {
+        yieldActivation(to: application)
+        application.activate(options: Self.vervellumRestoreActivationOptions)
+    }
+
     /// Reverts Vervellum to its menu-bar agent policy (`.accessory`, no Dock icon),
     /// **unless another ordinary window is still visible**.
     ///

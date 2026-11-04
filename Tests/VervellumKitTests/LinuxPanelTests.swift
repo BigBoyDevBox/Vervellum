@@ -27,5 +27,17 @@ final class LinuxPanelTests: XCTestCase {
         XCTAssertEqual(LinuxPanel.turnToCopy(in: thread)?.answer, "Settled [1].")
         XCTAssertNil(LinuxPanel.turnToCopy(in: ResearchThread()))
     }
+
+    func testPasteInterceptionUsesTheLayoutNeutralShortcutMatch() {
+        XCTAssertTrue(GTK.shouldInterceptPaste(shortcutMatches: true,
+                                               controlPressed: true,
+                                               shiftPressed: false))
+        XCTAssertFalse(GTK.shouldInterceptPaste(shortcutMatches: false,
+                                                controlPressed: true,
+                                                shiftPressed: false))
+        XCTAssertFalse(GTK.shouldInterceptPaste(shortcutMatches: true,
+                                                controlPressed: true,
+                                                shiftPressed: true))
+    }
 }
 #endif

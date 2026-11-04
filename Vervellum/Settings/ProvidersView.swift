@@ -449,6 +449,12 @@ struct ProvidersView: View {
                 TextField("Name (optional)", text: profile.name)
                     .textFieldStyle(.roundedBorder)
                 Picker("", selection: profile.kind) {
+                    if case .unsupported = kind {
+                        // `allCases` deliberately contains only types this build can
+                        // create. Keep the current inert value visible so the row never
+                        // looks as though a supported protocol was selected for it.
+                        Text(kind.label).tag(kind)
+                    }
                     ForEach(SearchProviderKind.allCases) { kind in
                         Text(kind.label).tag(kind)
                     }

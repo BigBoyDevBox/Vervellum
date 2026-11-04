@@ -93,8 +93,8 @@ enum EvidenceExtractor {
         case let dictionary as [String: Any]:
             var consumed: Set<String> = []
             if let hit = hit(from: dictionary) {
-                if !seen.contains(hit.url) {
-                    seen.insert(hit.url)
+                // Engines return tracking/fragment variants of the same evidence.
+                if seen.insert(SourceHarvester.canonicalKey(for: hit.url)).inserted {
                     hits.append(hit)
                 }
                 // This dictionary *is* a source. Its title, summary and date were taken
@@ -127,8 +127,8 @@ enum EvidenceExtractor {
             // summaries in one text block — and a link in prose is still evidence. Each
             // item around a link becomes a hit whose snippet is that item, so the model
             // sees the words the link came with rather than a bare address.
-            for hit in proseHits(in: text) where hits.count < maxCollected && !seen.contains(hit.url) {
-                seen.insert(hit.url)
+            for hit in proseHits(in: text) where hits.count < maxCollected {
+                guard seen.insert(SourceHarvester.canonicalKey(for: hit.url)).inserted else { continue }
                 hits.append(hit)
             }
         default:

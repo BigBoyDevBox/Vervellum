@@ -1852,6 +1852,60 @@ final class ResearchRunnerTests: XCTestCase {
                        "the loop must stop at the search cap, not run forever")
     }
 
+    /// A loop the search cap stops is stopped, not satisfied: everything it did was
+    /// searches, and the reads it had left to do are exactly what the staged path's
+    /// answer-stage fill covers. The fill runs before the tail answers, so the answer
+    /// is written over page text rather than over the snippets a search-heavy loop
+    /// left behind — and without another model call, which the cap already refused.
+    func testAgentResearchFillsUnreadPagesWhenTheSearchCapStopsIt() async throws {
+        let transport = StubTransport { call in
+            switch call.kind {
+            case .fetch:
+                return .html("<p>The page text for \(call.url.path).</p>")
+            case .json where call.url.path == "/search":
+                // A distinct URL per query, so the turn ends with one unread source
+                // per search rather than one deduped hit.
+                let query = call.url.query ?? ""
+                return .json(Self.searxng([(url: "https://a.example/hit?\(query)",
+                                            title: "A hit for \(query)")]))
+            case .json:
+                switch Self.stage(of: call) {
+                case .agentStep:
+                    // The step counter in the payload names the query, so each of the
+                    // twelve searches finds its own source.
+                    if let content = call.userContent,
+                       let data = content.data(using: .utf8),
+                       let payload = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                       let step = payload["step"] as? Int {
+                        return .completion(json: [
+                            "thought": "Another angle.",
+                            "action": "search",
+                            "arguments": ["q": "angle \(step)"],
+                        ])
+                    }
+                    return .unrouted
+                case .assess:
+                    return .completion(json: Self.assessment)
+                default:
+                    return .unrouted
+                }
+            case .stream:
+                return .stream(["Answered from the filled pages [1]."])
+            }
+        }
+
+        let turn = await run("What is out there?", mode: .agent, transport: transport)
+
+        XCTAssertEqual(turn.stage, .complete, turn.failure ?? "no failure recorded")
+        XCTAssertEqual(turn.searches.count, ResearchRunner.maxAgentSearches)
+        XCTAssertEqual(transport.calls.filter { Self.stage(of: $0) == .agentStep }.count,
+                       ResearchRunner.maxAgentSearches,
+                       "the cap ends the loop without another model call")
+        XCTAssertTrue(turn.sources.contains { $0.wasRead },
+                      "a loop the cap stopped keeps the staged fill: the top unread pages are read")
+        XCTAssertGreaterThanOrEqual(turn.pagesRead, 1)
+    }
+
     /// The loop's stop is honoured exactly like the staged planner's: a question it
     /// decides needs no evidence is answered from the model alone and badged so.
     func testAgentResearchAnswersUnsourcedWhenNothingIsNeeded() async throws {

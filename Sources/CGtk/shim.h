@@ -283,9 +283,19 @@ static inline const GValue *vv_clipboard_read_finish(GObject *source, GAsyncResu
     return gdk_clipboard_read_value_finish(GDK_CLIPBOARD(source), result, NULL);
 }
 
-/* Keyvals are macros in gdk/gdkkeysyms.h, as above. */
-static inline guint vv_key_v(void)         { return GDK_KEY_v; }
-/* Caps Lock changes which keyval a key sends, so Ctrl-V has two spellings. */
-static inline guint vv_key_capital_v(void) { return GDK_KEY_V; }
+/*
+ * Match the shortcut through GDK rather than comparing the effective keyval. A
+ * PARTIAL match means the active keyboard group differs, so Ctrl-V continues to work
+ * under Cyrillic and Greek layouts as well as Latin ones. The current event is
+ * transfer-none and exists only while the controller dispatches this signal; reduce it
+ * to a boolean here and never retain or unref it.
+ */
+static inline int vv_key_controller_matches_paste(gpointer controller) {
+    GdkEvent *event = gtk_event_controller_get_current_event(
+        GTK_EVENT_CONTROLLER(controller));
+    if (event == NULL) return 0;
+    return gdk_key_event_matches(event, GDK_KEY_v, GDK_CONTROL_MASK)
+        != GDK_KEY_MATCH_NONE;
+}
 
 #endif /* VERVELLUM_CGTK_SHIM_H */

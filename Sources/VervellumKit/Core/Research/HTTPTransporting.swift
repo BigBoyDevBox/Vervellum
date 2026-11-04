@@ -43,8 +43,10 @@ protocol HTTPTransporting: Sendable {
                   deadline: TimeInterval) async throws -> (headers: [String: String], body: [String: Any])
 
     /// Sends `request` and returns its response head and complete body, without judging
-    /// the status code. Only for requests that carry no credentials.
-    func fetch(_ request: URLRequest, limit: Int) async throws -> (HTTPURLResponse, Data)
+    /// the status code. Only for requests that carry no credentials. `deadline` is
+    /// remaining seconds from now, covering both response headers and body.
+    func fetch(_ request: URLRequest, limit: Int,
+               deadline: TimeInterval) async throws -> (HTTPURLResponse, Data)
 
     /// Sends `request` and yields each `data:` frame's decoded JSON object in order.
     func streamJSONEvents(_ request: URLRequest) -> AsyncThrowingStream<[String: Any], Error>

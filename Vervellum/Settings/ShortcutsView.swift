@@ -24,6 +24,9 @@ struct ShortcutsView: View {
                     + "your pointer is on. Vervellum needs no permission for this: the shortcut "
                     + "uses the system's own hotkey registration, not a keyboard monitor.") {
                 shortcutRow(binding: $summon, label: "Ask Vervellum") { preferences.summonHotkey = $0 }
+                registrationWarning(preferences.summonHotkeyRegistration,
+                                    text: "Vervellum could not claim this shortcut — another app may "
+                                        + "already be using it. It will try again when you change it.")
             }
 
             SettingsSection(
@@ -34,6 +37,9 @@ struct ShortcutsView: View {
                 shortcutRow(binding: $selection, label: "Research selection") {
                     preferences.researchSelectionHotkey = $0
                 }
+                registrationWarning(preferences.researchSelectionHotkeyRegistration,
+                                    text: "Vervellum could not claim this shortcut — another app may "
+                                        + "already be using it. It will try again when you change it.")
                 Toggle("Remove credential-shaped text from the selection", isOn: Binding(
                     get: { preferences.redactSecrets },
                     set: { preferences.redactSecrets = $0 }))
@@ -82,6 +88,22 @@ struct ShortcutsView: View {
                     .frame(width: 150, height: 22)
                     .disabled(!binding.wrappedValue.enabled)
             }
+        }
+    }
+
+    /// Why a configured shortcut may still not fire, when the system refused it.
+    ///
+    /// The recorder accepts any combination; only `RegisterEventHotKey` can say whether
+    /// another application owns it. A failure here is otherwise invisible: the shortcut
+    /// appears configured and silently never fires.
+    @ViewBuilder
+    private func registrationWarning(_ registration: Preferences.HotkeyRegistration,
+                                     text: String) -> some View {
+        if registration == .failed {
+            Label(text, systemImage: "exclamationmark.triangle.fill")
+                .font(.system(size: 11))
+                .foregroundStyle(.orange)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 

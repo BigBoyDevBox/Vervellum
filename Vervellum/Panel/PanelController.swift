@@ -275,8 +275,7 @@ final class PanelController {
     /// focus-stealing to the window server, which can defer or drop it — leaving the
     /// user typing into a window that is not actually frontmost.
     private func yieldActivation(to application: NSRunningApplication) {
-        NSApp.yieldActivation(to: application)
-        application.activate(options: [.activateAllWindows])
+        NSApp.restoreActivation(to: application)
     }
 
     // MARK: Dismissal rules

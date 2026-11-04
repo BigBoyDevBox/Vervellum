@@ -33,6 +33,12 @@ final class LinuxPanel {
     /// One row per attached file, above the composer. Rebuilt rather than diffed, like
     /// the thread: there are at most four of them.
     private let attachmentBox: GTK.Widget
+    /// One chip per question waiting behind a running turn, above the composer.
+    /// Rebuilt rather than diffed, for the same reason as the attachment row: there
+    /// are at most `ResearchSession.maxQueued` of them, and none of them is focusable
+    /// from the reader's point of view except its remove button, which is activated
+    /// from outside itself.
+    private let queueBox: GTK.Widget
     /// The row the four level buttons live in.
     private let levelBox: GTK.Widget
     /// The buttons themselves, in ladder order, built once and then retitled in place.
@@ -65,6 +71,8 @@ final class LinuxPanel {
     /// Set when a turn is appended, so the next render scrolls to it even if the reader
     /// had scrolled up: a question just asked is always the thing to look at.
     private var scrollToNewest = false
+    // Empty-state redraws must not repeatedly launch keyring processes.
+    private var cachedEmptyState: String?
 
     init(application: UnsafeMutablePointer<GtkApplication>,
          environment: LinuxEnvironment = .shared) {
@@ -80,6 +88,7 @@ final class LinuxPanel {
         composer = GTK.textView()
         statusLabel = GTK.markupLabel("")
         attachmentBox = GTK.verticalBox(spacing: 4)
+        queueBox = GTK.verticalBox(spacing: 4)
         levelBox = GTK.horizontalBox(spacing: 4)
         levelSummary = GTK.markupLabel("")
         // Created without a handler: `wireComposer` attaches the real one once `self`
@@ -128,6 +137,8 @@ final class LinuxPanel {
     }
 
     func show() {
+        cachedEmptyState = nil
+        if active.thread.turns.isEmpty { render() }
         gtk_window_present(vv_window(window))
         gtk_widget_grab_focus(composer)
     }
@@ -156,6 +167,7 @@ final class LinuxPanel {
 
         GTK.addStyle(statusLabel, "status")
         GTK.append(footer, statusLabel)
+        GTK.append(footer, queueBox)
         GTK.append(footer, attachmentBox)
         GTK.append(footer, levelBox)
         GTK.addStyle(levelSummary, "status")
@@ -246,7 +258,7 @@ final class LinuxPanel {
             // should not have said otherwise on the way in.
             return self.receive(dropped)
         }
-        GTK.observeKeys(composer) { [weak self] keyval, modifiers in
+        GTK.observeKeys(composer) { [weak self] keyval, modifiers, pasteShortcutMatches in
             guard let self else { return false }
             if GTK.isEscape(keyval) {
                 // Escape clears a draft first and only then closes, so a half-typed
@@ -273,7 +285,9 @@ final class LinuxPanel {
             // a screenshot of it" — a paste that silently does something else is worse than
             // one that cannot reach a flavour. Dragging the image instead is unaffected: a
             // drop offers files and textures alone.
-            if GTK.isPaste(keyval, modifiers) {
+            if GTK.shouldInterceptPaste(shortcutMatches: pasteShortcutMatches,
+                                        controlPressed: GTK.hasControl(modifiers),
+                                        shiftPressed: GTK.hasShift(modifiers)) {
                 return GTK.readClipboard(self.composer) { [weak self] dropped in
                     guard let self else { return }
                     guard let dropped else {
@@ -301,11 +315,10 @@ final class LinuxPanel {
             let submitting = GTK.hasControl(modifiers)
                 || self.environment.preferences.submitOnReturn
             guard submitting else { return false }   // let the text view insert a newline
-            // Return never stops a run. A user who types a follow-up while the answer
-            // streams and presses Return out of habit must not lose the answer; the
-            // draft stays and the key is swallowed, exactly as on macOS. Only the Stop
+            // Return never stops a run. A follow-up typed while the answer streams
+            // is queued by `ask`, the way the macOS composer is live during a run;
+            // a full queue keeps the text rather than swallowing it. Only the Stop
             // button cancels.
-            guard !self.active.isRunning else { return true }
             self.submit()
             return true
         }
@@ -314,6 +327,7 @@ final class LinuxPanel {
     // MARK: Actions
 
     private func newThread() {
+        cachedEmptyState = nil
         // Detached, not cancelled: a run in flight on the old session keeps going —
         // the map holds it, and its finished thread is still saved to the archive.
         activate(makeSession(thread: ResearchThread()))
@@ -332,7 +346,6 @@ final class LinuxPanel {
     }
 
     private func submit() {
-        guard !active.isRunning else { return }
         let text = GTK.text(of: composer).trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else {
             // A dropped file with nothing asked about it was a Return that did nothing
@@ -340,6 +353,16 @@ final class LinuxPanel {
             // tell, what broke the key. The macOS panel says the same sentence, from the
             // same constant.
             if !pendingAttachments.isEmpty { appendNotice(AttachmentIntake.questionlessMessage) }
+            return
+        }
+        // A slash word still being typed is a command being chosen, not a question.
+        // The macOS composer declines to send one — `isHalfTypedCommand` is the rule,
+        // tested in Core — and this front end had no counterpart: Return on `/`, `/de`
+        // or any partial word spent a request asking the model that word, while the
+        // empty state advertised "/ for commands". The same sentence is used; it is
+        // not shared only because the macOS copy lives in the SwiftUI view.
+        guard !ComposerCommand.isHalfTypedCommand(text) else {
+            appendNotice("Finish the command name")
             return
         }
 
@@ -370,20 +393,37 @@ final class LinuxPanel {
             GTK.setText(composer, "")
             selectModel(named: name)
         case .ask(let question, let level):
-            GTK.setText(composer, "")
             // A typed level is this question's alone; the selector keeps whatever it was
             // set to, and nil means "whatever it says" — resolved inside `ask`. See
             // `ComposerCommand.ask`.
             //
             // The flag goes up *before* the call, like the retry button's: `ask`
             // appends the turn and publishes synchronously, so the render that runs
-            // inside it must already know to follow. If nothing started, restore the
-            // prior value — a queued ask must not switch off the run it queued behind.
+            // inside it must already know to follow. Nothing that did not start a turn
+            // switches it on.
+            //
+            // The composer is emptied *before* the call for the same synchronous reason,
+            // and restored when the question was not taken. A full queue keeps the
+            // text, exactly as on macOS: emptying the field for a question that was
+            // refused is how you lose one, and the chip row below says what to do
+            // about it.
             let followWasOn = scrollToNewest
             scrollToNewest = true
-            let outcome = active.ask(question, mode: level,
-                                     attachments: takePendingAttachments())
-            if outcome != .started { scrollToNewest = followWasOn }
+            let attachments = takePendingAttachments()
+            GTK.setText(composer, "")
+            switch active.ask(question, mode: level, attachments: attachments) {
+            case .started:
+                break
+            case .queued:
+                scrollToNewest = followWasOn
+            case .queueFull, .ignored:
+                // Words and attachments both go back: the question was not taken, so
+                // nothing about it may be lost on the way to saying so.
+                GTK.setText(composer, question)
+                pendingAttachments = attachments
+                renderAttachments()
+                scrollToNewest = followWasOn
+            }
         }
     }
 
@@ -441,9 +481,19 @@ final class LinuxPanel {
             guard session === self.active else { return }
             self.render()
         }
-        // `onQueueReturned` is intentionally unwired: the composer refuses questions
-        // while a run is up (`submit` gates on `isRunning`), so this front end never
-        // builds the queue the macOS one hands back.
+        // A stopped or failed run hands its queue back, so a Stop is not the one
+        // gesture that destroys a typed question. Words and attachments both travel:
+        // the bytes of a pasted screenshot exist nowhere else. Appended to whatever
+        // is in the composer, not replacing it — a reader who typed half a new
+        // question and then stopped the run meant to keep both.
+        session.onQueueReturned = { [weak self] session, questions in
+            guard let self, session === self.active, !questions.isEmpty else { return }
+            let returned = questions.map(\.question).joined(separator: "\n\n")
+            let typed = GTK.text(of: self.composer).trimmingCharacters(in: .whitespacesAndNewlines)
+            GTK.setText(self.composer, typed.isEmpty ? returned : typed + "\n\n" + returned)
+            self.pendingAttachments.append(contentsOf: questions.flatMap(\.attachments))
+            self.renderAttachments()
+        }
         return session
     }
 
@@ -529,6 +579,40 @@ final class LinuxPanel {
         }
     }
 
+    /// Draws one chip per question waiting behind a running turn — shown rather than
+    /// merely counted, because a question the reader typed and cannot see is one they
+    /// will type again, and one they cannot withdraw is a provider request they
+    /// cannot call off. Each names the level it will run at (the queue can hold
+    /// questions asked at different levels) and its attachments (whose bytes are
+    /// invisible once the ask clears the chip row above).
+    private func renderQueue() {
+        GTK.removeAllChildren(of: queueBox)
+        let queued = active.queue
+        gtk_widget_set_visible(queueBox, queued.isEmpty ? 0 : 1)
+        if queued.count >= ResearchSession.maxQueued {
+            GTK.append(queueBox, GTK.markupLabel(
+                "<span size=\"small\" foreground=\"#9a6a10\">⚠ Up to "
+                + "\(ResearchSession.maxQueued) questions can wait at once. "
+                + "Stop the run, or remove one below.</span>"))
+        }
+        for item in queued {
+            let row = GTK.horizontalBox(spacing: 8)
+            let detail = item.mode.displayName
+                + (item.attachments.isEmpty ? "" : " · \u{1F4CE}\(item.attachments.count)")
+            let label = GTK.markupLabel(
+                "<span size=\"small\">⏳ \(GTK.escape(String(item.question.prefix(90)))) "
+                + "<span alpha=\"60%\">\(GTK.escape(detail))</span></span>")
+            gtk_widget_set_hexpand(label, 1)
+            gtk_label_set_xalign(vv_label(label), 0)
+            GTK.append(row, label)
+            let id = item.id
+            GTK.append(row, GTK.button("✕") { [weak self] in
+                self?.active.removeQueued(id)
+            })
+            GTK.append(queueBox, row)
+        }
+    }
+
     /// A message from the panel itself — `/help`, or a command this platform lacks —
     /// shown in the thread as a turn with no question.
     ///
@@ -561,7 +645,9 @@ final class LinuxPanel {
         GTK.removeAllChildren(of: threadBox)
 
         if active.thread.turns.isEmpty {
-            GTK.append(threadBox, GTK.markupLabel(Self.emptyStateMarkup(environment: environment)))
+            let markup = cachedEmptyState ?? Self.emptyStateMarkup(environment: environment)
+            cachedEmptyState = markup
+            GTK.append(threadBox, GTK.markupLabel(markup))
         }
 
         for turn in active.thread.turns {
@@ -572,6 +658,7 @@ final class LinuxPanel {
                              active.isRunning
                                 ? "<span size=\"small\">Researching… press Stop to cancel</span>" : "")
         gtk_button_set_label(vv_button(sendButton), active.isRunning ? "Stop" : "Ask")
+        renderQueue()
 
         if follow {
             // One idle hop later, after the new children have been laid out and the

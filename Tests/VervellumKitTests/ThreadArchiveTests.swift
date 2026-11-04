@@ -284,6 +284,35 @@ final class ThreadArchiveTests: XCTestCase {
         XCTAssertTrue(store.library.threads.isEmpty)
     }
 
+    func testTheDirectoryIsPrivateBeforeArchiveBytesAreWritten() throws {
+        try FileManager.default.setAttributes([.posixPermissions: 0o755],
+                                              ofItemAtPath: directory.path)
+        let manager = PermissionProbe()
+        let store = ThreadArchive(fileURL: fileURL, fileManager: manager, debounce: 0)
+        manager.beforeContents = { path in
+            guard path == self.fileURL.path else { return }
+            let attributes = try? FileManager.default.attributesOfItem(atPath: self.directory.path)
+            let mode = (attributes?[.posixPermissions] as? NSNumber)?.intValue ?? -1
+            XCTAssertEqual(mode & 0o777, 0o700, "Even atomic temporary files must be private")
+        }
+        store.save(thread("private"))
+        store.flush()
+        XCTAssertTrue(manager.probed)
+    }
+
+    private final class PermissionProbe: FileManager {
+        var beforeContents: ((String) -> Void)?
+        var probed = false
+
+        override func contents(atPath path: String) -> Data? {
+            if let beforeContents {
+                probed = true
+                beforeContents(path)
+            }
+            return super.contents(atPath: path)
+        }
+    }
+
     /// Research questions are personal; the file must not inherit a permissive umask.
     func testTheFileIsOwnerReadableOnly() throws {
         let store = ThreadArchive(fileURL: fileURL, debounce: 0)
