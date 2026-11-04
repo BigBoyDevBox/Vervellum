@@ -25,6 +25,28 @@ enum ResearchContext {
     /// must not do quietly. Still under `maxCharacters` (110_000 above), so history
     /// trims to make room before anything fixed is lost; pinned by a test.
     static let maxDeepEvidenceCharacters = 100_000
+    /// Bytes of the context ceiling reserved for the streamed answer when the evidence
+    /// budget is chosen.
+    ///
+    /// The assessment call is made *after* the answer and carries both in one payload,
+    /// so the evidence a turn may gather has to leave room for the answer it will be
+    /// checked against. A structured deep answer easily runs to 15,000 characters;
+    /// evidence at `maxDeepEvidenceCharacters` left it over the ceiling, the assessment
+    /// call failed soft, and the turn carried only an `assessmentUnavailable` notice —
+    /// no findings, no revision, no explanation the reader could act on. Reserving here
+    /// keeps "the findings grade the answer" true for answers up to this size; a longer
+    /// answer still fails soft rather than silently.
+    static let answerContextReserve = 20_000
+    /// The most bytes an attachments payload may contribute to one model call.
+    ///
+    /// Attachment text is capped per *file* at `Attachment.maxTextCharacters`, but one
+    /// question may carry four files and UTF-8 makes a character cost up to four bytes,
+    /// so the per-file cap does not bound the payload: four Chinese text files at the
+    /// per-file cap are ~288 KB of JSON, larger than the whole context ceiling, and the
+    /// planning call fails before a search is ever run. This is the budget the runner
+    /// truncates the payload to. The cut is visible (`\n[…]`) and raises
+    /// `TurnNotice.attachmentTrimmed`.
+    static let maxAttachmentPayloadBytes = 60_000
     /// Prior answers are summarised down to this length: the thread is there for
     /// pronoun resolution and follow-up context, not to be re-read in full.
     static let maxHistoricAnswerCharacters = 1_200
@@ -199,6 +221,89 @@ enum ResearchContext {
             }
         }
         return result
+    }
+
+    /// The evidence limit a turn may actually gather under, given the fixed content
+    /// already inside the payloads that will also carry evidence.
+    ///
+    /// `baseLimit` is the per-mode evidence ceiling; `fixedContentBytes` is the measured
+    /// size of everything else the answer and assessment payloads contain — the
+    /// question, the attachment payload, the search ledger. The answer reserve above is
+    /// subtracted as well, because the assessment carries the streamed answer too.
+    /// Clamped at zero: a turn whose fixed content alone fills the ceiling simply has no
+    /// evidence room, which is a different outcome from owing room it cannot have.
+    static func evidenceLimit(baseLimit: Int, fixedContentBytes: Int) -> Int {
+        max(0, min(baseLimit, maxCharacters - fixedContentBytes - answerContextReserve))
+    }
+
+    /// Truncates attachment text entries in `payload` until the payload fits `budget`
+    /// bytes, longest entry first, and reports whether anything was cut.
+    ///
+    /// Pure and here, beside the budget it enforces, so the rule is testable without a
+    /// runner. Each cut appends the same visible `\n[…]` marker a long single file's
+    /// truncation carries (`Attachment.truncated`), and entries without text are left
+    /// alone — an image's `sent` marker and an unavailable name are small and must not
+    /// be mistaken for prose. A budget below what the payload's *floor* measures — every
+    /// text entry already at `[…]` — cannot be met by trimming, so the floor payload is
+    /// returned instead of trimming against forever. The caller decides what the reader
+    /// is told.
+    static func cappingAttachmentText(_ payload: [[String: String]],
+                                      to budget: Int) -> (payload: [[String: String]],
+                                                          changed: Bool) {
+        var capped = payload
+        var changed = false
+        while measure(capped) > budget {
+            // Longest text entry first: cutting the biggest one makes the most progress
+            // per file the model sees shortened.
+            guard let index = capped.indices.max(by: {
+                (capped[$0]["text"]?.count ?? 0) < (capped[$1]["text"]?.count ?? 0)
+            }), var text = capped[index]["text"], !text.isEmpty else { break }
+            // Strip a marker an earlier pass left behind *before* measuring what to
+            // remove. Cutting the base and appending a fresh marker otherwise adds a
+            // character per pass: the payload converges on a length instead of the
+            // budget, and the loop never ends (found by a test, not by reading).
+            if let marker = text.range(of: "\n[…]", options: .backwards) {
+                text = String(text[..<marker.lowerBound])
+            }
+            // The longest entry is already at the "[…]" floor, so every other entry is
+            // at or below it and cutting any of them can only add the marker's bytes
+            // back: the budget is below what this payload's floor can ever measure.
+            // Collapse every text entry to that floor and stop rather than spin — the
+            // loop's one unbounded state (a review finding; the old
+            // `guard keep < text.count` escape could never fire, because
+            // `removeCharacters` is `max(1, …)` and so `keep` always came out below
+            // `text.count`, leaving a floor entry to be re-set to "[…]" with no size
+            // change).
+            if text == "[…]" {
+                for entryIndex in capped.indices where capped[entryIndex]["text"] != nil {
+                    if capped[entryIndex]["text"] != "[…]" {
+                        capped[entryIndex]["text"] = "[…]"
+                        changed = true
+                    }
+                }
+                break
+            }
+            if text.isEmpty {
+                capped[index]["text"] = "[…]"
+                changed = true
+                continue
+            }
+            // Characters, converted through this entry's own byte density: a CJK file
+            // costs three or four bytes per character, and removing a fixed number of
+            // *bytes'* worth of characters overshoots badly on Latin text while removing
+            // a byte count would take hundreds of passes on CJK.
+            let excess = measure(capped) - budget
+            let density = Double(Data(text.utf8).count) / Double(max(1, text.count))
+            let removeCharacters = max(1, Int((Double(excess) / density).rounded()))
+            // `removeCharacters` is at least 1, so the base this pass leaves behind is
+            // always shorter than the one it found: the loop is bounded by the payload's
+            // total character count, whatever budget it is handed.
+            let keep = max(0, text.count - removeCharacters)
+            let cut = String(text.prefix(keep))
+            capped[index]["text"] = cut.isEmpty ? "[…]" : cut + "\n[…]"
+            changed = true
+        }
+        return (capped, changed)
     }
 
     /// Serialized size of a payload, which is what the provider actually charges

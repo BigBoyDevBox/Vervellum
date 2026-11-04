@@ -354,6 +354,84 @@ final class ResearchRunnerTests: XCTestCase {
         XCTAssertEqual(Self.stage(of: calls[5]), .assess)
     }
 
+    // MARK: Context budget
+
+    /// Four text files at the per-file cap are ~96 KB of JSON, and the evidence behind
+    /// them adds more: the answer call was over the context ceiling and the turn died
+    /// with "context too large" after all the searches. The payload cap and the
+    /// reserved answer room are what keep this turn alive.
+    func testFourLargeAttachmentsCompleteAndEveryCallFitsTheContext() async throws {
+        let transport = StubTransport { call in
+            switch call.kind {
+            case .json where call.url.absoluteString.hasPrefix(Self.modelURL):
+                switch Self.stage(of: call) {
+                case .plan: return .completion(json: Self.plan("the logs"))
+                case .assess: return .completion(json: Self.assessment)
+                default: return .unrouted
+                }
+            case .json where call.url.path == "/search":
+                return .json(Self.searxng((1...6).map {
+                    (url: "https://a.example/\($0)", title: "Log \($0)")
+                }))
+            case .fetch:
+                return .html("<p>" + String(repeating: "page text ", count: 1_200) + "</p>")
+            case .stream:
+                return .stream(["The logs show a timeout [1]."])
+            default:
+                return .unrouted
+            }
+        }
+
+        var attachments: [Attachment] = []
+        var bytes: [UUID: Data] = [:]
+        for index in 1...4 {
+            let data = Data(String(repeating: "attachment text ", count: 1_600).utf8)
+            guard case .success(let pending) = PendingAttachment.make(from: data, name: "log\(index).txt")
+            else { return XCTFail("the fixture attachment was refused") }
+            attachments.append(pending.attachment)
+            bytes[pending.id] = pending.data
+        }
+
+        let turn = await run("What do these logs say?", mode: .research,
+                             transport: transport, attachments: attachments,
+                             attachmentBytes: { bytes[$0.id] })
+
+        XCTAssertEqual(turn.stage, .complete, turn.failure ?? "no failure recorded")
+        XCTAssertTrue(turn.notices.contains(.attachmentTrimmed),
+                      "the files were cut to fit, which the reader is owed: \(turn.notices)")
+        let chatCalls = transport.calls.filter {
+            $0.url.absoluteString.hasPrefix(Self.modelURL)
+        }
+        XCTAssertFalse(chatCalls.isEmpty)
+        for call in chatCalls {
+            let content = try XCTUnwrap(call.userContent)
+            // UTF-8 bytes, the unit the ceiling is counted in: a Character count can
+            // sit under a byte budget while the serialized payload is over it.
+            XCTAssertLessThanOrEqual(content.utf8.count, ResearchContext.maxCharacters,
+                                     "\(call.url) is over the context ceiling")
+        }
+    }
+
+    /// An attachment payload already inside the budget is not touched, and its
+    /// truncation never reaches a name or a sent marker.
+    func testASmallAttachmentSetIsNotTrimmed() async throws {
+        let transport = StubTransport { call in
+            call.kind == .stream ? .stream(["The log shows a timeout."]) : .unrouted
+        }
+        let data = Data("a short log".utf8)
+        guard case .success(let pending) = PendingAttachment.make(from: data, name: "log.txt")
+        else { return XCTFail("the fixture attachment was refused") }
+
+        let turn = await run("What failed?", mode: .direct, transport: transport,
+                             attachments: [pending.attachment],
+                             attachmentBytes: { _ in data })
+
+        XCTAssertEqual(turn.stage, .complete, turn.failure ?? "no failure recorded")
+        XCTAssertFalse(turn.notices.contains(.attachmentTrimmed), "\(turn.notices)")
+        let content = try XCTUnwrap(transport.calls.first?.userContent)
+        XCTAssertTrue(content.contains("a short log"), content)
+    }
+
     // MARK: Kagi
 
     /// The one search backend that is a program rather than a server, run end to end.

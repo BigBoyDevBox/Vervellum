@@ -398,6 +398,15 @@ final class ResearchRunner: ResearchRunning {
         // fire on. `unavailable` rather than an absent entry, because "there was a file
         // called this and you cannot see it" is the fact worth carrying.
         for name in lost { payload.append(["name": name, "unavailable": "yes"]) }
+        // The per-file cap counts characters, not bytes and not the question's total:
+        // four files at that cap can exceed the whole context ceiling by themselves,
+        // and the planning call would fail before a search ever runs. Trim the longest
+        // entries until the payload fits, with the same visible `\n[…]` marker one long
+        // file already gets, and say so on the turn.
+        let capped = ResearchContext.cappingAttachmentText(
+            payload, to: ResearchContext.maxAttachmentPayloadBytes)
+        if capped.changed { update { $0.addNotice(.attachmentTrimmed) } }
+        payload = capped.payload
         // Counted, not derived. `payload.count - lost.count` was right only because the
         // loop above appends the lost names into `payload`, and nothing said so — a
         // third kind of entry would have made the log quietly wrong, in the one place
@@ -567,8 +576,21 @@ final class ResearchRunner: ResearchRunning {
         // would be discarded by the next rebuild.
         var allSearches: [PlannedSearch] = []
         var plannedReads: [Int: String] = [:]
-        let evidenceLimit = mode == .research ? ResearchContext.maxEvidenceCharacters
-                                              : ResearchContext.maxDeepEvidenceCharacters
+        // The context ceiling is shared by every stage, and the evidence ceilings above
+        // were sized against it as though evidence were the only variable. Two other
+        // things ride in those payloads: the attachment text (capped, but still there)
+        // and, for the assessment, the streamed answer. Charge both before any
+        // gathering, so the limit the rounds, the agent loop and the regather compare
+        // against is one the answer and the check can actually fit inside.
+        let fixedContent = ResearchContext.measure([
+            "question": question, "today": today, "reading": "",
+            "searches_run": [[String: Any]](), "highest_source_number": 0,
+            "attachments": attachments.payload,
+        ] as [String: Any])
+        let evidenceLimit = ResearchContext.evidenceLimit(
+            baseLimit: mode == .research ? ResearchContext.maxEvidenceCharacters
+                                         : ResearchContext.maxDeepEvidenceCharacters,
+            fixedContentBytes: fixedContent)
         // Clamped at zero: `prefix` traps on a negative count, and a turn whose links
         // spent the whole allowance has simply none left, which is different from
         // owing one.
