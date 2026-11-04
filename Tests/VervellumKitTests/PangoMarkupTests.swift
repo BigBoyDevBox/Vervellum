@@ -245,5 +245,20 @@ final class PangoMarkupTests: XCTestCase {
         let markup = PangoMarkup.inline("**bold [7]** end", sources: sources)
         XCTAssertEqual(markup, "<b>bold [7]</b> end")
     }
+
+    /// A follow-up is an ask link: the question percent-encoded in the href — a space,
+    /// a quote or a newline must not end it — and escaped in the visible text.
+    func testAFollowupIsALinkThatCarriesItsQuestion() {
+        let markup = PangoMarkup.followups(["What <next>?"])!
+        XCTAssertTrue(markup.contains("<a href=\"vervellum-ask:What%20%3Cnext%3E%3F\">"),
+                      markup)
+        XCTAssertTrue(markup.contains("↳ What &lt;next&gt;?</a>"), markup)
+        // The href decodes back to exactly the question the link will ask.
+        let marker = "href=\"" + PangoMarkup.askScheme
+        let start = markup.range(of: marker)!.upperBound
+        let end = markup.index(after: markup[start...].firstIndex(of: "\"")!)
+        let href = String(markup[start..<markup.index(before: end)])
+        XCTAssertEqual(href.removingPercentEncoding, "What <next>?")
+    }
 }
 #endif
