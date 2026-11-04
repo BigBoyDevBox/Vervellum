@@ -472,10 +472,21 @@ final class LinuxPanel {
     private func activate(_ session: ResearchSession) {
         sessions[session.id] = session
         active = session
-        // A settled session stays in the map now: the history list can show its
-        // thread again, and a run in flight keeps it alive regardless. Bounded by
-        // the archive's kept-thread limit rather than the window's life.
+        // A settled session stays in the map so the history list can reopen its
+        // thread — but only while that thread is still openable. Anything else (an
+        // abandoned empty thread, a thread the archive has since evicted) is dropped
+        // here, so the map tracks the archive rather than outliving the window.
+        pruneSessions(keeping: session)
         render()
+    }
+
+    /// Keeps only the sessions the reader can still reach: the one on screen, any
+    /// still running, and any whose thread is still in the archive.
+    private func pruneSessions(keeping session: ResearchSession) {
+        let archived = Set(environment.archive.library.threads.map(\.id))
+        sessions = sessions.filter {
+            archived.contains($0.key) || $0.value === session || $0.value.isRunning
+        }
     }
 
     // MARK: Attachments
@@ -560,6 +571,10 @@ final class LinuxPanel {
         // The flag first: appending publishes synchronously, so `render` runs inside
         // the call and must already know it should follow.
         scrollToNewest = true
+        // A notice is written into the thread, so the thread has to be what is on
+        // screen: a command typed from the history list (`/help`, `/copy`, `/model`)
+        // would otherwise answer into a view the reader cannot see.
+        showsHistory = false
         active.appendLocalTurn(turn)
     }
 
@@ -662,8 +677,9 @@ final class LinuxPanel {
         sessions[id]?.discard()
         sessions.removeValue(forKey: id)
         if active.thread.id == id {
-            activate(makeSession(thread: ResearchThread()))
+            // Before `activate`, which renders: the reader is still in the list.
             showsHistory = true
+            activate(makeSession(thread: ResearchThread()))
         } else {
             render()
         }
