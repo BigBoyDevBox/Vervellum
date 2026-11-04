@@ -139,7 +139,31 @@ final class AttachmentStore {
     /// records pointing at nothing. The caller's job is to carry on without the picture,
     /// not to fail the turn — which is why this returns an optional rather than throwing.
     func data(for attachment: Attachment) -> Data? {
-        fileManager.contents(atPath: url(for: attachment.id).path)
+        guard let handle = try? FileHandle(forReadingFrom: url(for: attachment.id)) else {
+            return nil
+        }
+        defer { try? handle.close() }
+
+        // A stored file no longer passes through intake: it can be replaced by a sync,
+        // restored from a damaged backup, or edited by hand. Read one byte past the cap
+        // so an exact-limit file is distinguishable from an oversized one, and loop
+        // because `read(upToCount:)` is allowed to return a short chunk before EOF.
+        let readLimit = Attachment.maxAttachmentBytes + 1
+        let chunkSize = 64 * 1024
+        var data = Data()
+        while data.count < readLimit {
+            let remaining = min(chunkSize, readLimit - data.count)
+            let chunk: Data?
+            do {
+                chunk = try handle.read(upToCount: remaining)
+            } catch {
+                return nil
+            }
+            guard let chunk, !chunk.isEmpty else { break }
+            data.append(chunk)
+        }
+        guard data.count <= Attachment.maxAttachmentBytes else { return nil }
+        return data
     }
 
     /// True when the bytes are still there. For a panel that would rather show a missing
