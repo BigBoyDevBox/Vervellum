@@ -53,7 +53,13 @@ final class GitHubReleaseTests: XCTestCase {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         let release = try decoder.decode(GitHubRelease.self, from: json)
+        // A `.dmg` is a macOS artifact: there it outranks the zip, but on Linux it
+        // names another OS, so the unlabelled zip is the better pick.
+        #if os(macOS)
         XCTAssertEqual(release.preferredAsset?.name, "Vervellum-1.4.0.dmg")
+        #else
+        XCTAssertEqual(release.preferredAsset?.name, "Vervellum-1.4.0.zip")
+        #endif
     }
 
     /// A release can carry more than one archive of the same extension. The updater runs
@@ -102,6 +108,37 @@ final class GitHubReleaseTests: XCTestCase {
         XCTAssertEqual(release.preferredAsset?.name, "Vervellum-1.4.0-macos-x86_64.zip")
         #else
         throw XCTSkip("No expectation for this architecture.")
+        #endif
+    }
+
+    /// A build for this machine with no platform token in its name must still beat one
+    /// that explicitly targets another OS: without the other-OS penalty, the foreign
+    /// name's architecture token alone (+4) outranked the unlabelled build (0), so a
+    /// bare "Vervellum-1.4.0.zip" lost to "Vervellum-1.4.0-linux-aarch64.zip" on an
+    /// Apple-silicon Mac. The foreign asset names this machine's architecture so the
+    /// test carries its force on every architecture, not just arm64.
+    func testUnlabelledBuildBeatsExplicitOtherPlatform() throws {
+        #if arch(arm64)
+        let thisArchitecture = "aarch64"
+        #elseif arch(x86_64)
+        let thisArchitecture = "x86_64"
+        #else
+        let thisArchitecture = "universal"
+        #endif
+        #if os(macOS)
+        let release = try decodeRelease(assetNames: [
+            "Vervellum-1.4.0.zip",
+            "Vervellum-1.4.0-linux-\(thisArchitecture).zip",
+        ])
+        XCTAssertEqual(release.preferredAsset?.name, "Vervellum-1.4.0.zip")
+        #elseif os(Linux)
+        let release = try decodeRelease(assetNames: [
+            "Vervellum-1.4.0.zip",
+            "Vervellum-1.4.0-macos-\(thisArchitecture).zip",
+        ])
+        XCTAssertEqual(release.preferredAsset?.name, "Vervellum-1.4.0.zip")
+        #else
+        throw XCTSkip("No expectation for this operating system.")
         #endif
     }
 

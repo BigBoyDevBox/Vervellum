@@ -65,18 +65,45 @@ struct GitHubRelease: Decodable {
 
     /// How well an asset name matches the machine running the updater.
     ///
-    /// Platform first (8), exact architecture second (4), a universal build last (2).
-    /// A `.dmg` counts as a macOS name and a `.deb` as a Linux one, so the extension
+    /// Platform dominates: naming this OS scores +8, naming a *different* OS scores
+    /// -8, and saying nothing scores 0 — an explicitly foreign name has to lose to a
+    /// token-less one for this machine, because without the penalty its architecture
+    /// token alone (+4) would outrank an unlabelled build (0), and the updater would
+    /// download an archive it cannot install. Within the right platform an exact
+    /// architecture is +4 and a universal build is +2. A `.dmg`/`.pkg` counts as a
+    /// macOS name and a `.deb`/`.rpm`/`.AppImage` as a Linux one, so the extension
     /// still helps when a release names its artifacts by type rather than by platform.
     static func assetAffinity(_ name: String) -> Int {
         let lowered = name.lowercased()
         var score = 0
+        // A token beginning with "." is a file extension, so it only matches at the
+        // end of the name; every other token is a substring anywhere.
+        func matches(_ token: String) -> Bool {
+            token.hasPrefix(".") ? lowered.hasSuffix(token) : lowered.contains(token)
+        }
         #if os(macOS)
-        if lowered.contains("macos") || lowered.contains("osx") || lowered.contains("darwin")
-            || lowered.hasSuffix(".dmg") { score += 8 }
+        let platformTokens = ["macos", "osx", "darwin", ".dmg", ".pkg"]
+        let otherPlatformTokens = [
+            "linux", ".deb", ".rpm", ".appimage",
+            "windows", "win32", "win64", ".exe", ".msi",
+        ]
         #elseif os(Linux)
-        if lowered.contains("linux") || lowered.hasSuffix(".deb") { score += 8 }
+        let platformTokens = ["linux", ".deb", ".rpm", ".appimage"]
+        let otherPlatformTokens = [
+            "mac", "macos", "darwin", "osx", ".dmg", ".pkg",
+            "windows", "win32", "win64", ".exe", ".msi",
+        ]
+        #else
+        // Unknown platforms recognise no tokens either way; only the generic
+        // architecture scoring below applies.
+        let platformTokens: [String] = []
+        let otherPlatformTokens: [String] = []
         #endif
+        if platformTokens.contains(where: matches) {
+            score += 8
+        } else if otherPlatformTokens.contains(where: matches) {
+            score -= 8
+        }
         #if arch(arm64)
         let exactArchitecture = ["arm64", "aarch64"]
         #elseif arch(x86_64)
