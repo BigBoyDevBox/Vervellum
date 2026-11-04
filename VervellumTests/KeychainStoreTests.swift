@@ -4,6 +4,25 @@ import XCTest
 
 final class KeychainStoreTests: XCTestCase {
 
+    /// `set` is the general `SecretStore` API, not only the provider transaction's:
+    /// a caller replacing an existing credential must get it back when the required
+    /// downgrade mirror fails, not lose it to the rollback.
+    func testLegacyMirrorFailureRestoresAPreExistingBlobValue() throws {
+        let fake = FakeKeychainOperations()
+        let account = SecretAccount(rawValue: "provider")
+        fake.items["all-api-keys"] = try SecretBlob.encode([account.rawValue: "old key"])
+        fake.items[account.rawValue] = Data("old key".utf8)
+        fake.updateFailures[account.rawValue] = errSecAuthFailed
+        let store = KeychainStore(service: uniqueService(), operations: fake.interface)
+
+        XCTAssertThrowsError(try store.set("new key", for: account))
+        let blob = try XCTUnwrap(fake.items["all-api-keys"])
+        XCTAssertEqual(SecretBlob.decode(blob)?[account.rawValue], "old key",
+                       "rollback must restore the previous credential, not erase it")
+        XCTAssertEqual(store.value(for: account), "old key",
+                       "the pre-existing credential must remain readable")
+    }
+
     func testLegacyMirrorFailureIsReported() throws {
         let fake = FakeKeychainOperations()
         let account = SecretAccount(rawValue: "provider")
@@ -72,8 +91,14 @@ private final class FakeKeychainOperations {
         copyMatching: { [unowned self] query, result in
             let account = self.account(in: query)
             self.operations.append("copy:\(account)")
-            guard let value = self.items[account] else { return errSecItemNotFound }
-            result?.pointee = value as CFData
+            // Both halves of the real contract: a miss still initialises the result
+            // pointer, and a hit hands back an object the caller owns at +1 —
+            // `passRetained`, because `CFRetain` itself is unavailable in Swift.
+            guard let value = self.items[account] else {
+                result?.pointee = nil
+                return errSecItemNotFound
+            }
+            result?.pointee = Unmanaged.passRetained(value as CFData).takeUnretainedValue()
             return errSecSuccess
         },
         update: { [unowned self] query, attributes in

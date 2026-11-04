@@ -158,8 +158,15 @@ final class CorePreferences {
         set {
             // Selection changes elsewhere in the app retain their historical
             // non-throwing interface. A failed barrier leaves the last durable value
-            // authoritative rather than publishing a configuration a restart loses.
-            try? persistProviderSettings(newValue)
+            // authoritative rather than publishing a configuration a restart loses —
+            // and is still worth a trace, because a `try?` here would leave a
+            // provider transaction's only diagnostic in whatever the store logged.
+            do {
+                try persistProviderSettings(newValue)
+            } catch {
+                FileHandle.standardError.write(Data(
+                    "vervellum warning: provider settings may not be durable\n".utf8))
+            }
         }
     }
 
@@ -169,9 +176,15 @@ final class CorePreferences {
     /// values visible to this process immediately but writes them asynchronously; that
     /// is not a commit point for a destination/credential transaction.
     func persistProviderSettings(_ newValue: ProviderSettings) throws {
+        let previous = providerSettings
         let settings = writeProviderSettings(newValue)
         guard store.synchronize() else {
-            cachedProviderSettings = nil
+            // Every SettingsStore serves reads from memory, so the failed write is
+            // still visible to this process. Roll it back best-effort — the rollback
+            // can fail too — and pin the memo to the durable snapshot either way, or
+            // the next read would report a configuration a restart loses.
+            _ = writeProviderSettings(previous)
+            cachedProviderSettings = previous
             throw PersistenceError.providerSettings
         }
         cachedProviderSettings = settings

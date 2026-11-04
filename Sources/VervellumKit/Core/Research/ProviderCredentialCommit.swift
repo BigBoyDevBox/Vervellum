@@ -62,7 +62,7 @@ enum ProviderCredentialCommit {
             case .credentialAccountMismatch:
                 return "A provider refers to a Keychain account reserved for another provider type. Nothing was saved."
             case .sharedLegacyAccount:
-                return "Two providers share a legacy Keychain account. Separate them before saving."
+                return "Two providers share a Keychain account. Separate them before saving."
             case .secretWriteAfterCommit(_, let error):
                 return "The provider settings were saved, but a replacement key was not: "
                     + error.localizedDescription
@@ -173,12 +173,23 @@ enum ProviderCredentialCommit {
             where !committedReferences.contains(fixed) {
             barriers[fixed] = .clear
         }
-        // A fixed account has exactly one scalar downgrade mirror. Ambiguous ownership
-        // is unsafe even when this save does not happen to change either destination.
-        for fixed in [SecretAccount.modelAPIKey, .searchAPIKey] {
-            guard committedReferenceList.filter({ $0 == fixed }).count <= 1 else {
-                throw CommitError.sharedLegacyAccount(fixed)
-            }
+        // One account answers to one destination: two profiles pointing at the same
+        // Keychain item would send its secret to two different services — the binding
+        // this transaction exists to prevent. The fixed slots are the ordinary case
+        // (each has exactly one scalar downgrade mirror), but a derived name shared
+        // through a hand-edited file is the same exposure, so every committed
+        // reference is counted rather than just the legacy pair. Rejecting here, after
+        // the per-profile loop has restored stored pointers, is also the only ordering
+        // that catches duplicates this save does not touch at all.
+        var referenceCounts: [SecretAccount: Int] = [:]
+        for account in committedReferenceList {
+            referenceCounts[account, default: 0] += 1
+        }
+        if let shared = referenceCounts
+            .filter({ $0.value > 1 })
+            .keys.sorted(by: { $0.rawValue < $1.rawValue })
+            .first {
+            throw CommitError.sharedLegacyAccount(shared)
         }
 
         let superseded = beforeReferences

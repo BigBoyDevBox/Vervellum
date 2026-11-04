@@ -371,6 +371,31 @@ final class CorePreferencesTests: XCTestCase {
         XCTAssertFalse(CorePreferences(store: store).providerSettings.modelFallback)
     }
 
+    /// A failed durability barrier must not leave this process reporting the
+    /// configuration that failed to persist. Every real store serves reads from
+    /// memory — the failed write is still sitting in it — so the setter's rollback
+    /// is what keeps the last durable configuration authoritative.
+    func testAFailedBarrierLeavesThePreviousConfigurationReporting() throws {
+        let store = UnreliableSettingsStore()
+        let settings = CorePreferences(store: store)
+        let kept = ModelProfile.new(name: "Kept",
+                                    endpoint: "https://a.example.com/v1", model: "a")
+        try settings.persistProviderSettings(ProviderSettings(
+            modelProfiles: [kept], selectedModelID: kept.id, searchProfiles: []))
+
+        store.synchronizeSucceeds = false
+        let lost = ModelProfile.new(name: "Lost",
+                                    endpoint: "https://b.example.com/v1", model: "b")
+        XCTAssertThrowsError(try settings.persistProviderSettings(ProviderSettings(
+            modelProfiles: [lost], selectedModelID: lost.id, searchProfiles: [])))
+
+        XCTAssertEqual(settings.providerSettings.modelProfiles.map(\.id), [kept.id],
+                       "the next read must report the durable configuration")
+        XCTAssertEqual(store.string(for: CorePreferences.Key.modelEndpoint),
+                       "https://a.example.com/v1",
+                       "the failed write must be rolled back in the store itself")
+    }
+
     // MARK: The theme
 
     /// The setter used to hand `encode`'s optional straight to the store, and a nil there
@@ -434,4 +459,23 @@ final class CorePreferencesTests: XCTestCase {
         XCTAssertEqual(preferences([CorePreferences.Key.panelPalette: "[]"]).panelPalette,
                        .ember)
     }
+}
+
+/// A `MemorySettingsStore` whose durability barrier can be made to fail. It keeps the
+/// same contract the file and `UserDefaults` stores keep: writes land in memory
+/// immediately whether or not the barrier later reports they reached disk.
+private final class UnreliableSettingsStore: SettingsStore {
+    private var values: [String: Any]
+    var synchronizeSucceeds = true
+
+    init(_ initial: [String: Any] = [:]) { values = initial }
+
+    func string(for key: String) -> String? { values[key] as? String }
+    func double(for key: String) -> Double? { values[key] as? Double }
+    func bool(for key: String) -> Bool? { values[key] as? Bool }
+
+    func setString(_ value: String?, for key: String) { values[key] = value }
+    func setDouble(_ value: Double?, for key: String) { values[key] = value }
+    func setBool(_ value: Bool?, for key: String) { values[key] = value }
+    func synchronize() -> Bool { synchronizeSucceeds }
 }

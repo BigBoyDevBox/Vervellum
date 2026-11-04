@@ -139,7 +139,11 @@ final class KeychainStore: SecretStore {
         }
         let trimmed = secret.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { try delete(account); return }
-        try mutateBlob { $0[account.rawValue] = trimmed }
+        var previous: String?
+        try mutateBlob {
+            previous = $0[account.rawValue]
+            $0[account.rawValue] = trimmed
+        }
         // After the blob, but not best-effort: the per-account item is the stated
         // downgrade path. Reporting success while it stayed stale would let a rolled-
         // back build send the previous credential. Provider settings stage writes in
@@ -149,12 +153,26 @@ final class KeychainStore: SecretStore {
             try setLegacy(trimmed, for: account)
         } catch {
             // Do not leave the current build claiming a value whose required downgrade
-            // mirror did not land. Provider transactions only write a fresh account or
-            // one cleared by a deletion barrier, so removing this entry restores the
-            // pre-write state (absent) rather than exposing a previous destination's
-            // credential. A rollback failure is still safe for those callers: the new
-            // account is either unreferenced or already belongs to the new endpoint.
-            try? mutateBlob { $0.removeValue(forKey: account.rawValue) }
+            // mirror did not land. The pre-write state is restored rather than just
+            // undone: `set` is the general SecretStore API, and removal is only the
+            // right rollback when the account was absent — true for provider
+            // transactions, which write a fresh account or one cleared by a deletion
+            // barrier, but a caller that updated an existing account would otherwise
+            // lose its credential to a transient mirror failure.
+            do {
+                try mutateBlob { blob in
+                    if let previous {
+                        blob[account.rawValue] = previous
+                    } else {
+                        blob.removeValue(forKey: account.rawValue)
+                    }
+                }
+            } catch {
+                // Still safe for provider callers — the new account is either
+                // unreferenced or already belongs to the new endpoint — but a blob
+                // now holding a value the mirror never landed is worth a trace.
+                NSLog("Vervellum: keychain blob rollback for '\(account.rawValue)' failed: \(error)")
+            }
             throw error
         }
     }

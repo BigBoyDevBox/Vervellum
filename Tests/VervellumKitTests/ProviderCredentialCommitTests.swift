@@ -326,6 +326,66 @@ final class ProviderCredentialCommitTests: XCTestCase {
             }
     }
 
+    /// The fixed slots are not the only unsafe duplication: a hand-edited or corrupted
+    /// file can put the same derived account on two profiles, and each would then send
+    /// the shared secret to its own destination — the binding this transaction exists
+    /// to prevent.
+    func testEveryCommitRejectsDuplicateDerivedAccountOwners() {
+        let secondID = UUID(uuidString: "33333333-3333-3333-3333-333333333333")!
+        let shared = SecretAccount.derived(from: .modelAPIKey, for: UUID())
+        var original = settings()
+        original.modelProfiles[0].keyAccount = shared.rawValue
+        original.modelProfiles.append(ModelProfile(
+            id: secondID, name: "other", endpoint: "https://other.example/v1",
+            model: "other", keyAccount: shared.rawValue))
+        let secrets = RecordingSecretStore([shared: "shared key"])
+        var persisted = false
+
+        XCTAssertThrowsError(try ProviderCredentialCommit.commit(
+            original: original,
+            edited: original,
+            edits: .init(),
+            secrets: secrets,
+            persist: { _ in persisted = true })) { error in
+                guard case ProviderCredentialCommit.CommitError.sharedLegacyAccount(shared)
+                    = error else {
+                    return XCTFail("unexpected error: \(error)")
+                }
+            }
+
+        XCTAssertFalse(persisted)
+        XCTAssertTrue(secrets.operations.isEmpty,
+                      "ambiguous ownership must be rejected before any mutation")
+    }
+
+    /// Duplication in the file being saved *from* is not fatal on its own: rotating
+    /// one of the two profiles mints a unique account, and the commit is legal again.
+    func testRotatingOneOfTwoSharedDerivedAccountsResolvesTheDuplication() throws {
+        let secondID = UUID(uuidString: "33333333-3333-3333-3333-333333333333")!
+        let shared = SecretAccount.derived(from: .modelAPIKey, for: UUID())
+        var original = settings()
+        original.modelProfiles[0].keyAccount = shared.rawValue
+        original.modelProfiles.append(ModelProfile(
+            id: secondID, name: "other", endpoint: "https://other.example/v1",
+            model: "other", keyAccount: shared.rawValue))
+        var edited = original
+        edited.modelProfiles[1].endpoint = "https://changed.example/v1"
+        let secrets = RecordingSecretStore([shared: "shared key"])
+        var persisted: ProviderSettings?
+
+        let result = try ProviderCredentialCommit.commit(
+            original: original,
+            edited: edited,
+            edits: .init(),
+            secrets: secrets,
+            makeAccount: { _ in self.freshModel }) { persisted = $0 }
+
+        XCTAssertEqual(result.settings.modelProfiles[0].secretAccount, shared)
+        XCTAssertEqual(result.settings.modelProfiles[1].secretAccount, freshModel)
+        XCTAssertEqual(persisted, result.settings)
+        XCTAssertEqual(secrets.value(for: shared), "shared key")
+    }
+
     func testAModelCannotOwnARecognizedSearchCredentialAccount() {
         var original = settings()
         original.modelProfiles[0].keyAccount = SecretAccount.searchAPIKey.rawValue
