@@ -93,8 +93,12 @@ final class ComposerThreadSwitchTests: XCTestCase {
     }
 
     private func clickFirstHistoryRow(in hosting: NSView, window: NSWindow) {
-        let y = hosting.isFlipped ? CGFloat(76) : hosting.bounds.maxY - 76
-        let local = NSPoint(x: 100, y: y)
+        // Center of the first row in this fixed-size hosted panel. The assertion on the
+        // selected thread immediately after the click keeps layout drift from becoming
+        // a false positive; update this alongside the history header/row geometry.
+        let rowCenter = NSPoint(x: 100, y: 76)
+        let y = hosting.isFlipped ? rowCenter.y : hosting.bounds.maxY - rowCenter.y
+        let local = NSPoint(x: rowCenter.x, y: y)
         let location = hosting.convert(local, to: nil)
         for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
             let event = NSEvent.mouseEvent(
