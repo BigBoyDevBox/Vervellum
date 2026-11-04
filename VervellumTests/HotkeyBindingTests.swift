@@ -1,4 +1,5 @@
 import XCTest
+import AppKit
 import Carbon.HIToolbox
 @testable import Vervellum
 
@@ -44,6 +45,43 @@ final class HotkeyBindingTests: XCTestCase {
             XCTAssertTrue(binding.hasCommandModifier)
             XCTAssertTrue(binding.isValid)
         }
+
+        let shiftedCommand = HotkeyBinding(keyCode: 0,
+                                           modifiers: UInt32(shiftKey | cmdKey),
+                                           keyLabel: "A", enabled: true)
+        XCTAssertTrue(shiftedCommand.isValid)
+
+        let alphaLock = HotkeyBinding(keyCode: 0, modifiers: UInt32(alphaLock),
+                                      keyLabel: "A", enabled: true)
+        XCTAssertFalse(alphaLock.isValid)
+    }
+
+    func testRecordedEventsUseCarbonModifierBitsForValidation() throws {
+        let original = HotkeyBinding(keyCode: 0, modifiers: 0,
+                                     keyLabel: "A", enabled: true)
+        let shiftEvent = try XCTUnwrap(NSEvent.keyEvent(with: .keyDown,
+                                                        location: .zero,
+                                                        modifierFlags: [.shift],
+                                                        timestamp: 0,
+                                                        windowNumber: 0,
+                                                        context: nil,
+                                                        characters: "A",
+                                                        charactersIgnoringModifiers: "a",
+                                                        isARepeat: false,
+                                                        keyCode: 0))
+        let commandEvent = try XCTUnwrap(NSEvent.keyEvent(with: .keyDown,
+                                                          location: .zero,
+                                                          modifierFlags: [.command],
+                                                          timestamp: 0,
+                                                          windowNumber: 0,
+                                                          context: nil,
+                                                          characters: "a",
+                                                          charactersIgnoringModifiers: "a",
+                                                          isARepeat: false,
+                                                          keyCode: 0))
+
+        XCTAssertFalse(original.updated(from: shiftEvent).isValid)
+        XCTAssertTrue(original.updated(from: commandEvent).isValid)
     }
 
     func testJSONRoundTrip() {
