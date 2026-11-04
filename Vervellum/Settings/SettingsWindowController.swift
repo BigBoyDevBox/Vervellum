@@ -91,8 +91,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         appToRestoreOnClose = nil
         NSApp.revertToAccessoryIfNoOrdinaryWindows(excluding: window)
         if let restore, !restore.isTerminated {
-            NSApp.yieldActivation(to: restore)
-            restore.activate(options: [.activateAllWindows])
+            NSApp.restoreActivation(to: restore)
         }
     }
 }
