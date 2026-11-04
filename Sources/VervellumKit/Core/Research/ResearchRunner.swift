@@ -522,8 +522,16 @@ final class ResearchRunner: ResearchRunning {
                     // transport is entitled to throw `URLError` and the chain's own
                     // fallback code already says in as many words that a non-`ResearchError`
                     // can reach it. Only a Stop propagates.
-                    let reason = (error as? ResearchError)?.message ?? String(describing: error)
-                    trace.warn("Search engine \(profile.displayName) is not usable: \(reason)")
+                    let reason = ResearchError.disclosedSearchFailure(error)
+                    // The type name beside the safe sentence: the trace is Vervellum's
+                    // own channel, and "URLError" versus something else is the one
+                    // diagnostic the fixed sentence cannot carry. It is `safeLabel`
+                    // — a type name, never a foreign description — so the rule that
+                    // provider text stays out of the log still holds.
+                    let detail = error is ResearchError
+                        ? "" : " (\(ResearchError.safeLabel(for: error)))"
+                    trace.warn("Search engine \(profile.displayName) is not usable: "
+                               + "\(reason)\(detail)")
                 }
                 try Task.checkCancellation()
             }
@@ -1387,7 +1395,9 @@ final class ResearchRunner: ResearchRunning {
                 // may have spent a dozen billed requests before reaching here.
                 // Narrowed to `ResearchError` this caught none of the failures the
                 // transport can raise on its own.
-                let reason = (error as? ResearchError)?.message ?? String(describing: error)
+                // Not `String(describing:)`: this string is shown when every
+                // search fails, and a URLError's description includes the URL.
+                let reason = ResearchError.disclosedSearchFailure(error)
                 return Outcome(step: step, engine: engineIndex, result: nil,
                                fruitful: false, failure: reason)
             }
