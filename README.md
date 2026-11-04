@@ -114,8 +114,9 @@ runs the searches and answers based on current sources.
   finish with `finish_reason: stop`; malformed or unfinished replies remain
   incomplete. On macOS, keys live in one login-Keychain item as an account-to-key
   dictionary. Writes also update legacy per-account items on a best-effort basis so an
-  older build can still read keys after a downgrade; deletion will not remove the blob
-  unless its matching legacy item was removed first.
+  older build can still read keys after a downgrade. Deleting a key removes its legacy
+  item first and only then updates the blob, so a downgraded build cannot read a key
+  you have deleted.
 - **As many models as you want, chosen per question.** Configure several providers —
   a local server, a fast hosted model, a careful one — each with its own endpoint and
   its own key. Pick the one that answers next from the panel or with `/model`; every
