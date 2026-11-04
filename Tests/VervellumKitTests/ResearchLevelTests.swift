@@ -186,24 +186,27 @@ final class ResearchLevelTests: XCTestCase {
         XCTAssertFalse(ResearchLevel.direct.cost(settings).contains("searches"))
     }
 
-    /// A deep round puts every planned search to every configured engine, so the same
-    /// level costs a different amount on two installs. The line has to say which one the
-    /// reader is on, or it understates the bill on exactly the setup that pays most.
+    /// A deep round can put every planned search to every compatible configured engine,
+    /// so the same level has a different worst-case cost on two installs. The line has
+    /// to say which one the reader is on, or it understates the bill on exactly the setup
+    /// that pays most.
     func testTheDeepCostLineCountsTheReadersOwnSearchEngines() {
         var one = ProviderSettings()
         one.searchProfiles = [SearchProfile.new(name: "A", endpoint: "https://a.example")]
-        XCTAssertTrue(ResearchLevel.deep.cost(one).contains("your one configured search engine"),
+        XCTAssertTrue(ResearchLevel.deep.cost(one)
+            .contains("your configured search engine when its schema is compatible"),
                       ResearchLevel.deep.cost(one))
 
         var two = one
         two.searchProfiles.append(SearchProfile.new(name: "B", endpoint: "https://b.example"))
-        XCTAssertTrue(ResearchLevel.deep.cost(two).contains("each of your 2 configured search engines"),
+        XCTAssertTrue(ResearchLevel.deep.cost(two)
+            .contains("every compatible search engine (up to all 2 you configured)"),
                       ResearchLevel.deep.cost(two))
 
         // No engine configured yet is still "one" rather than "zero": the turn runs
         // against the selected engine, and a settings file with an empty list is a
         // machine that cannot research at all — a cost line is not where that is said.
         XCTAssertTrue(ResearchLevel.deep.cost(ProviderSettings())
-            .contains("your one configured search engine"))
+            .contains("your configured search engine when its schema is compatible"))
     }
 }

@@ -153,10 +153,10 @@ enum ResearchLevel: String, Codable, CaseIterable, Identifiable, Equatable {
     /// read by someone deciding whether to spend money.
     ///
     /// `engines` is why `settings` is a parameter rather than this being a stored
-    /// string: a deep round puts every planned search to *every* configured engine, so
-    /// the request ceiling is rounds × searches × engines. `ResearchRunner.maxSearches`
-    /// says in as many words that this should be stated plainly rather than discovered
-    /// on a metered account.
+    /// string: a deep round puts every planned search to every configured engine whose
+    /// schema can express it. The worst-case request ceiling is still rounds × searches
+    /// × engines. `ResearchRunner.maxSearches` says in as many words that this should be
+    /// stated plainly rather than discovered on a metered account.
     func cost(_ settings: ProviderSettings) -> String {
         switch self {
         case .direct:
@@ -168,8 +168,8 @@ enum ResearchLevel: String, Codable, CaseIterable, Identifiable, Equatable {
         case .deep:
             let engines = max(1, settings.searchProfiles.count)
             let fanOut = engines == 1
-                ? "your one configured search engine"
-                : "each of your \(engines) configured search engines"
+                ? "your configured search engine when its schema is compatible"
+                : "every compatible search engine (up to all \(engines) you configured)"
             return "Up to \(ResearchRunner.maxDeepRounds) rounds of "
                 + "\(ResearchRunner.maxSearches) searches, every one of them put to "
                 + "\(fanOut), and up to \(PageReaderFactory.maxDeepPages) pages read, on a "

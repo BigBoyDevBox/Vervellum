@@ -208,11 +208,11 @@ final class ResearchRunner: ResearchRunning {
     /// rarely changes the answer.
     ///
     /// Not the same as the number of billed requests, which it used to be. A `deep` turn
-    /// puts each planned search to every engine still answering, over as many as
-    /// `maxDeepRounds` rounds, so the ceiling on requests is this times the engines times
-    /// the rounds. That is the cost of a wider net and it is the reader's to choose by
-    /// configuring a second engine — but it should be said plainly here rather than left
-    /// for someone to discover on a metered account.
+    /// puts each planned search to every schema-compatible engine still answering, over
+    /// as many as `maxDeepRounds` rounds. The worst-case request ceiling remains this
+    /// times all configured engines times the rounds. That is the cost of a wider net and
+    /// it is the reader's to choose by configuring a second engine — but it should be
+    /// said plainly here rather than left for someone to discover on a metered account.
     static let maxSearches = 4
 
     private let environment: Environment
@@ -943,13 +943,14 @@ final class ResearchRunner: ResearchRunning {
             trace.log("Plan asked for no searches; answering from the linked page(s)")
         }
 
-        // 3 — search. Stateless engines answer every (query, engine) pair
-        // concurrently — deep mode multiplies searches by engines by rounds, and
+        // 3 — search. Stateless engines answer every compatible (query, engine) pair
+        // concurrently — deep mode multiplies searches by compatible engines by rounds, and
         // serialising that is latency bought with nothing. Stateful backends (an MCP
         // session is one JSON-RPC id sequence over one connection) stay serial: the
         // protocol documents no other shape.
         update { $0.stage = .searching }
         engines = try await runSearches(plan.searches, across: engines,
+                                        plannedAgainst: search,
                                         mode: mode, state: &searchState)
         allSearches = plan.searches
 
@@ -1075,6 +1076,7 @@ final class ResearchRunner: ResearchRunning {
                 update { $0.searches = allSearches }
                 update { $0.stage = .searching }
                 engines = try await runSearches(follow.searches, across: engines,
+                                                 plannedAgainst: search,
                                                  mode: mode, state: &searchState)
                 if engines.isEmpty {
                     trace.warn("No search engine is still answering; stopping the rounds")
@@ -1219,6 +1221,7 @@ final class ResearchRunner: ResearchRunning {
                 }
                 update { $0.stage = .searching }
                 engines = try await runSearches([planned], across: engines,
+                                                plannedAgainst: search,
                                                 mode: .deep, state: &searchState)
                 searchesUsed += 1
                 allSearches.append(planned)
@@ -1270,17 +1273,23 @@ final class ResearchRunner: ResearchRunning {
         var attempted = 0
     }
 
-    /// One round's searches, asked of every engine still in the running. Returns the
-    /// engines that answered with something, so a later round can stop asking the ones
-    /// that did not — the plan is written against the selected engine's `inputSchema`,
-    // and an engine declaring a different one refuses those arguments every time. It
-    /// costs a request per search to find that out once; it should not cost one per
-    /// round.
+    /// One round's searches, asked of every compatible engine still in the running.
+    /// The planner's backend receives its original arguments; each spare receives only
+    /// the query, translated to the name its own schema advertises. Provider-specific
+    /// options never cross that boundary, and a schema that needs more than a query is
+    /// skipped rather than guessed at.
     ///
-    /// Sequential on purpose: the MCP session is stateful, and one JSON-RPC id
-    /// sequence over one connection is the only shape the server documents.
+    /// Returns engines that answered with something, plus an engine skipped only because
+    /// one step had no portable query — a later step may be valid. A structurally
+    /// incompatible backend leaves the round, as does one that was called but failed
+    /// every time; keeping either would spend later planning calls on searches that can
+    /// never run.
+    ///
+    /// Stateful calls remain sequential on purpose: an MCP session has one JSON-RPC id
+    /// sequence over one connection, which is the only shape the server documents.
     private func runSearches(_ planned: [PlannedSearch],
                              across asked: [SearchBackend],
+                             plannedAgainst planningEngine: SearchBackend,
                              mode: Mode,
                              state: inout SearchRoundState) async throws -> [SearchBackend] {
         // Local copies, written back once at the end: the fan-out below launches
@@ -1303,9 +1312,44 @@ final class ResearchRunner: ResearchRunning {
             let failure: String?
         }
 
+        /// One compatible (plan step, engine) call. The argument dictionary is built
+        /// before any task starts and only read by its child task.
+        struct Scheduled: @unchecked Sendable {
+            let step: Int
+            let engine: Int
+            let arguments: [String: Any]
+        }
+
         let indexed = Array(asked.enumerated())
-        let stateless = indexed.filter { $0.element.supportsConcurrentCalls }
-        let stateful = indexed.filter { !$0.element.supportsConcurrentCalls }
+        var scheduled: [Scheduled] = []
+        var scheduledByStep: [Int: Int] = [:]
+        var attemptedBackends: Set<ObjectIdentifier> = []
+        var incompatibleBackends: Set<ObjectIdentifier> = []
+        for (stepIndex, step) in planned.enumerated() {
+            for (engineIndex, engine) in indexed {
+                switch engine.projection(from: step.arguments,
+                                         plannedAgainst: planningEngine) {
+                case .arguments(let arguments):
+                    scheduled.append(Scheduled(step: stepIndex, engine: engineIndex,
+                                               arguments: arguments))
+                    scheduledByStep[stepIndex, default: 0] += 1
+                    attemptedBackends.insert(ObjectIdentifier(engine))
+                case .invalidArguments:
+                    trace.log("Search \(stepIndex + 1) skipped on \(engine.backendName): "
+                              + "the plan has no portable query for that backend")
+                case .incompatibleSchema:
+                    trace.log("Search \(stepIndex + 1) skipped on \(engine.backendName): "
+                              + "its argument schema is not compatible with the plan")
+                    incompatibleBackends.insert(ObjectIdentifier(engine))
+                }
+            }
+        }
+        let stateless = scheduled.filter {
+            indexed[$0.engine].element.supportsConcurrentCalls
+        }
+        let stateful = scheduled.filter {
+            !indexed[$0.engine].element.supportsConcurrentCalls
+        }
 
         var productive: Set<ObjectIdentifier> = []
         var fruitfulByStep: [Int: Int] = [:]
@@ -1313,7 +1357,17 @@ final class ResearchRunner: ResearchRunning {
         // Progress counts *planned searches*, not (search, engine) pairs — "2 of 3"
         // is about the plan the reader can see. A step completes when its last pair
         // does, whichever engine's that was.
-        var pairsLeft = Dictionary(uniqueKeysWithValues: planned.indices.map { ($0, asked.count) })
+        var pairsLeft = Dictionary(uniqueKeysWithValues: planned.indices.map {
+            ($0, scheduledByStep[$0, default: 0])
+        })
+
+        // A plan step with no compatible engine is still complete from the progress
+        // indicator's point of view. It was not attempted, though, so it must not become
+        // a `failed_query`; a per-step argument skip also must not retire its engine.
+        for stepIndex in planned.indices where pairsLeft[stepIndex] == 0 {
+            attempted += 1
+            update { $0.searchesCompleted = attempted }
+        }
 
         func apply(_ outcome: Outcome, engine: SearchBackend) {
             if let result = outcome.result {
@@ -1393,28 +1447,16 @@ final class ResearchRunner: ResearchRunning {
             }
         }
 
-        // No engine to ask: nothing will run, and the progress label must still
-        // count the plan off — a step only completes when its last pair answers,
-        // and with no pairs that never happens on its own.
-        if asked.isEmpty {
-            attempted += planned.count
-            update { $0.searchesCompleted = attempted }
-            state.attempted = attempted
-            return asked
-        }
-
         // Stateless engines: the whole round in flight at once. The fan-out is
         // bounded structurally: a round plans at most `maxSearches` steps, so at
         // most maxSearches × engines requests leave at once — a dozen HTTP calls
         // or short-lived CLI processes in any real configuration, which is what
         // the engines themselves tolerate under a single user key.
-        if !stateless.isEmpty, !planned.isEmpty {
+        if !stateless.isEmpty {
             try await withThrowingTaskGroup(of: Outcome.self) { group in
-                for (stepIndex, step) in planned.enumerated() {
-                    for (engineIndex, _) in stateless {
-                        group.addTask {
-                            try await attempt(stepIndex, engineIndex, step.arguments)
-                        }
+                for pair in stateless {
+                    group.addTask {
+                        try await attempt(pair.step, pair.engine, pair.arguments)
                     }
                 }
                 for try await outcome in group {
@@ -1423,15 +1465,13 @@ final class ResearchRunner: ResearchRunning {
             }
         }
         // Stateful engines: one session, one id sequence, as before.
-        for (stepIndex, step) in planned.enumerated() {
+        for pair in stateful {
             try Task.checkCancellation()
-            for (engineIndex, _) in stateful {
-                let outcome = try await attempt(stepIndex, engineIndex, step.arguments)
-                apply(outcome, engine: indexed[outcome.engine].element)
-            }
+            let outcome = try await attempt(pair.step, pair.engine, pair.arguments)
+            apply(outcome, engine: indexed[outcome.engine].element)
         }
 
-        // Asked of every engine and nothing usable came back — outage or
+        // Asked of every scheduled engine and nothing usable came back — outage or
         // barren index, the planner only needs the outcome. The query is the
         // model's own text, safe to hand back to it — the trace rule about not
         // logging results is about content, and this never reaches the log.
@@ -1439,10 +1479,10 @@ final class ResearchRunner: ResearchRunning {
         // the next round's context with the same line twice. Capped at the
         // digest's snippet budget: the list is re-injected into every later
         // round, and an unbounded model-written string would grow each one.
-        // `asked` is non-empty here by the early return above, so a step with no
-        // fruitfulness really was asked of a real engine and really got nothing.
         for (stepIndex, step) in planned.enumerated()
-        where mode == .deep && fruitfulByStep[stepIndex, default: 0] == 0 {
+        where mode == .deep
+            && scheduledByStep[stepIndex, default: 0] > 0
+            && fruitfulByStep[stepIndex, default: 0] == 0 {
             let query = String(step.displayQuery.prefix(200))
             if !failedQueries.contains(query) { failedQueries.append(query) }
         }
@@ -1458,12 +1498,11 @@ final class ResearchRunner: ResearchRunning {
         state.failedQueries = failedQueries
         state.attempted = attempted
 
-        // Nothing was asked, so nothing was proven unproductive. Without this an
-        // empty plan — which a question carrying links can legitimately produce —
-        // would report every engine as silent, and `deep` would skip the very rounds
-        // that exist to ask what the first pass did not.
-        if planned.isEmpty { return asked }
-        return asked.filter { productive.contains(ObjectIdentifier($0)) }
+        return asked.filter {
+            let id = ObjectIdentifier($0)
+            return !incompatibleBackends.contains(id)
+                && (!attemptedBackends.contains(id) || productive.contains(id))
+        }
     }
     /// What a successful regather round produced. Everything in it replaces the first
     /// pass's version at once — which is why this is a value handed back rather than
@@ -1517,10 +1556,14 @@ final class ResearchRunner: ResearchRunning {
             trace.log("No regather round: the evidence budget is already full")
             return nil
         }
+        guard let planningEngine = engines.first else {
+            trace.log("No regather round: no search engine is still available")
+            return nil
+        }
 
         update { $0.stage = .planning }
         var extra: [String: Any] = [
-            "search_tool": engines.first?.toolDescriptor ?? [:],
+            "search_tool": planningEngine.toolDescriptor,
             "found": Self.digest(of: withReads),
             "unsettled": insufficient.map { ["claim": $0.claim, "reasoning": $0.reasoning] },
         ]
@@ -1574,6 +1617,7 @@ final class ResearchRunner: ResearchRunning {
             // The reader sees the round's searches like every other round's: they ran.
             update { $0.searches += roundPlan.searches }
             _ = try await runSearches(roundPlan.searches, across: engines,
+                                      plannedAgainst: planningEngine,
                                       mode: .deep, state: &searchState)
         }
         var harvested = Self.applyingReads(

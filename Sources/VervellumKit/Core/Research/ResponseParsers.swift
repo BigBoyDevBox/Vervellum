@@ -139,7 +139,7 @@ enum PlanParser {
 /// A step is the smallest unit the loop spends: one model call, one action. Strict
 /// on purpose — an ambiguous step is cheap to redo (the loop re-asks with the same
 /// payload) and expensive to guess at (a search run on misunderstood arguments bills
-/// every configured engine).
+/// every schema-compatible configured engine).
 enum AgentStepParser {
 
     /// One parsed step: a thought and exactly one action.

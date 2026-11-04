@@ -99,7 +99,8 @@ runs the searches and answers based on current sources.
   **No search** answers from the model alone and is badged as unsourced; **One pass**
   plans a round of searches, answers, then checks the answer against what it found;
   **Deep rounds** comes back up to three times for what the last round missed, putting
-  every planned search to every engine you have configured; **Agent loop** spends the
+  every planned search to every configured engine whose argument schema can express it;
+  **Agent loop** spends the
   same page and evidence allowance as Deep rounds, but the model picks one search or
   page read at a time and stops when it judges the question settled. Each is also a
   command — `/no-search`, `/one-pass`, `/deep-rounds`, `/agent-loop` — and typing one

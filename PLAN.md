@@ -262,8 +262,11 @@ is citation-validated after cancellation, failure, and checkpoint recovery.
 **Why the fan-out, and what stays serial.** The MCP session is stateful — one JSON-RPC id
 sequence over one connection is the only shape the server documents, and MCP searches stay
 serial for that reason. SearXNG and the Kagi CLI are stateless, and deep mode multiplies
-searches by engines by rounds, so every stateless (query, engine) pair of a round runs
-concurrently. Determinism survives by construction: tasks produce value-typed outcomes, the
+searches by compatible engines by rounds, so every compatible stateless (query, engine)
+pair of a round runs concurrently. Plans are written against the selected engine's real
+schema; a spare receives only the query under its own schema's query field. Provider-specific
+filters are not guessed across schemas, and a spare requiring other fields is skipped.
+Determinism survives by construction: tasks produce value-typed outcomes, the
 parent applies them serially, and results append in (query, engine) order, because source
 numbering follows insertion order and a race would renumber the evidence between runs of an
 identical turn. A failed search is logged and skipped rather than losing
