@@ -109,6 +109,32 @@ final class SearXNGClientTests: XCTestCase {
         XCTAssertEqual(items.first { $0.name == "language" }?.value, "1")
     }
 
+    /// A number the model wrote that is integral but outside `Int` must be rendered,
+    /// not converted. `Int(number)` traps on `1e308`, and the schema checks argument
+    /// names only, so this value reaches the URL builder. The crash took the whole app
+    /// down mid-turn, which is why this is a regression test and not a nicety.
+    func testAnIntegralDoubleOutsideIntRangeIsRenderedRatherThanTrapping() throws {
+        let values: [Double] = [1e308, -1e308, 1e19, Double.greatestFiniteMagnitude]
+        for value in values {
+            let url = try XCTUnwrap(SearXNGClient.requestURL(
+                base: base(), arguments: ["q": "x", "time_range": value]))
+            let items = try XCTUnwrap(
+                URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems)
+            XCTAssertEqual(items.first { $0.name == "time_range" }?.value,
+                           String(value), "\(value) must render as written")
+        }
+    }
+
+    /// Integral doubles inside the range still render as integers, and non-integral
+    /// ones keep the spelling they always had.
+    func testIntegralDoublesInsideIntRangeRenderAsIntegers() throws {
+        let url = try XCTUnwrap(SearXNGClient.requestURL(
+            base: base(), arguments: ["q": "x", "time_range": 7.0, "categories": 1.5]))
+        let items = try XCTUnwrap(URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems)
+        XCTAssertEqual(items.first { $0.name == "time_range" }?.value, "7")
+        XCTAssertEqual(items.first { $0.name == "categories" }?.value, "1.5")
+    }
+
     // MARK: Advertised schema
 
     /// The planner writes its arguments against this, and they are checked back against
