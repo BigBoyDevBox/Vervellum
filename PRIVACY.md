@@ -145,8 +145,18 @@ removable in Settings ▸ Keyboard ▸ Custom Shortcuts.
 Removing Vervellum and its application data removes the stored threads and preferences —
 `~/.config/vervellum` and `~/.local/share/vervellum` on Linux. API keys are removed by
 clearing them in Settings ▸ Providers on macOS, by deleting the "Vervellum" items from
-Keychain Access, or on Linux with
-`secret-tool clear service ch.lkmc.Vervellum account model-api-key`.
+Keychain Access, or on Linux by unlocking the login keyring and running:
+
+```sh
+secret-tool clear service ch.lkmc.Vervellum
+```
+
+That service-wide selector removes Vervellum's legacy model, search and reader items as
+well as the per-provider accounts added by newer versions. Deleting
+`~/.config/vervellum` also removes the mode-0600 fallback key file when no keyring was
+available. Environment variables are not stored in either place: remove
+`VERVELLUM_MODEL_KEY`, `VERVELLUM_SEARCH_KEY` and `VERVELLUM_READER_KEY` from the shell
+profile or launcher that sets them.
 
 Questions can be asked through the project's GitHub repository; please report security
 vulnerabilities privately, as described in [SECURITY.md](SECURITY.md).
