@@ -151,10 +151,13 @@ Keychain Access, or on Linux by unlocking the login keyring and running:
 secret-tool clear service ch.lkmc.Vervellum
 ```
 
-That service-wide selector removes Vervellum's legacy model, search and reader items as
-well as the per-provider accounts added by newer versions. Deleting
-`~/.config/vervellum` also removes the mode-0600 fallback key file when no keyring was
-available. Environment variables are not stored in either place: remove
+Every keyring item Vervellum writes has that same `service` attribute; only its
+`account` differs. The service-wide selector therefore removes the legacy model,
+search and reader items as well as the per-provider accounts added by newer versions.
+Deleting `~/.config/vervellum` also removes the mode-0600 fallback key file,
+`~/.config/vervellum/secrets.json`, when no keyring was available (under a custom XDG
+configuration directory, the path is `$XDG_CONFIG_HOME/vervellum/secrets.json`).
+Environment variables are not stored in either place: remove
 `VERVELLUM_MODEL_KEY`, `VERVELLUM_SEARCH_KEY` and `VERVELLUM_READER_KEY` from the shell
 profile or launcher that sets them.
 
