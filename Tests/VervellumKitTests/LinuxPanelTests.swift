@@ -11,5 +11,17 @@ final class LinuxPanelTests: XCTestCase {
         // The rest of the sheet survives the scaling rule.
         XCTAssertTrue(LinuxPanel.stylesheet(textScale: 1.0).contains(".composer {"))
     }
+
+    func testPasteInterceptionUsesTheLayoutNeutralShortcutMatch() {
+        XCTAssertTrue(GTK.shouldInterceptPaste(shortcutMatches: true,
+                                               controlPressed: true,
+                                               shiftPressed: false))
+        XCTAssertFalse(GTK.shouldInterceptPaste(shortcutMatches: false,
+                                                controlPressed: true,
+                                                shiftPressed: false))
+        XCTAssertFalse(GTK.shouldInterceptPaste(shortcutMatches: true,
+                                                controlPressed: true,
+                                                shiftPressed: true))
+    }
 }
 #endif
