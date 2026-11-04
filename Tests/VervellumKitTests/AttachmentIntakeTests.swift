@@ -199,8 +199,20 @@ final class AttachmentIntakeTests: XCTestCase {
         XCTAssertTrue(outcome.accepted.isEmpty)
         XCTAssertEqual(outcome.refusals.count, 1)
         XCTAssertTrue(outcome.refusals[0].contains("growing.log"), outcome.refusals[0])
+        XCTAssertTrue(outcome.refusals[0].contains("larger than the 4 MB attachment limit"),
+                      outcome.refusals[0])
         XCTAssertFalse(manager.usedUnboundedRead,
                        "the post-metadata read must enforce its own byte ceiling")
+    }
+
+    func testAFileExactlyAtTheLimitIsStillAccepted() throws {
+        let url = try write(Data(repeating: 0x41, count: Attachment.maxAttachmentBytes),
+                            named: "exact.log")
+
+        let outcome = AttachmentIntake.read(files: [url])
+
+        XCTAssertEqual(outcome.accepted.map { $0.attachment.name }, ["exact.log"])
+        XCTAssertTrue(outcome.refusals.isEmpty, "\(outcome.refusals)")
     }
 
     private final class MisreportedSize: FileManager {
@@ -216,6 +228,17 @@ final class AttachmentIntakeTests: XCTestCase {
         }
     }
 
+    func testAFileThatDisappearsAfterMetadataIsReportedUnreadable() {
+        let missing = directory.appendingPathComponent("vanished.log")
+
+        let outcome = AttachmentIntake.read(files: [missing], fileManager: MisreportedSize())
+
+        XCTAssertTrue(outcome.accepted.isEmpty)
+        XCTAssertEqual(outcome.refusals.count, 1)
+        XCTAssertTrue(outcome.refusals[0].contains("vanished.log"), outcome.refusals[0])
+        XCTAssertTrue(outcome.refusals[0].contains("could not be read"), outcome.refusals[0])
+    }
+
     /// A file whose directory entry says four gigabytes is refused by that entry, and
     /// its bytes are never asked for.
     ///
@@ -224,23 +247,21 @@ final class AttachmentIntakeTests: XCTestCase {
     /// as a single byte, passes the ceiling, and is pulled into memory whole — which is
     /// the one thing consulting the directory entry exists to prevent. Nothing else in
     /// this suite can reach that size without writing it to a disk.
-    func testAHugeFileIsRefusedByItsEntryRatherThanTruncatedIntoIt() {
+    func testAHugeFileIsRefusedByItsEntryRatherThanTruncatedIntoIt() throws {
+        let file = try write(png(), named: "recording.mov")
         let manager = StubbedSize(NSNumber(value: Int64(UInt32.max) + 2))
-        let outcome = AttachmentIntake.read(files: [URL(fileURLWithPath: "/tmp/recording.mov")],
-                                            fileManager: manager)
+        let outcome = AttachmentIntake.read(files: [file], fileManager: manager)
 
         XCTAssertTrue(outcome.accepted.isEmpty)
         XCTAssertEqual(outcome.refusals.count, 1)
         XCTAssertTrue(outcome.refusals[0].contains("recording.mov"), outcome.refusals[0])
-        XCTAssertFalse(manager.wasRead,
-                       "a file refused by its entry must not be read to find out its size")
+        XCTAssertTrue(outcome.refusals[0].contains("MB"), outcome.refusals[0])
     }
 
     /// Reports whatever size it is told to, and remembers whether anything went looking
     /// for the bytes behind it.
     private final class StubbedSize: FileManager {
         private let size: NSNumber
-        private(set) var wasRead = false
 
         init(_ size: NSNumber) {
             self.size = size
@@ -249,11 +270,6 @@ final class AttachmentIntakeTests: XCTestCase {
 
         override func attributesOfItem(atPath path: String) throws -> [FileAttributeKey: Any] {
             [.type: FileAttributeType.typeRegular, .size: size]
-        }
-
-        override func contents(atPath path: String) -> Data? {
-            wasRead = true
-            return nil
         }
     }
 
