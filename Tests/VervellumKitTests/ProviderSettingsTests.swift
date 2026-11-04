@@ -254,8 +254,9 @@ final class ProviderSettingsTests: XCTestCase {
                                         searchProfiles: [search, duplicateSearch],
                                         selectedSearchID: search.id)
 
-        XCTAssertTrue(settings.problems(hasModelKey: true, hasSearchKey: true,
-                                        requiresSearch: false).isEmpty)
+        XCTAssertEqual(settings.problems(hasModelKey: true, hasSearchKey: true,
+                                         requiresSearch: false), [],
+                       "an unused search configuration does not block a no-search turn")
     }
 
     func testProfilesRoundTripThroughTheEncodedForm() throws {
