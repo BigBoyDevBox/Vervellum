@@ -199,6 +199,38 @@ final class ResearchContextTests: XCTestCase {
         XCTAssertEqual(untouched.payload, small)
     }
 
+    /// A budget below the payload's floor — every text entry at `[…]`, nothing left
+    /// around it but names — cannot be met, and the trim loop used to spin on it
+    /// forever: a floor entry was re-set to `[…]` with no size change, and the
+    /// `keep < text.count` escape could never fire because `removeCharacters` is at
+    /// least 1. Found by review; a test would have hung the suite rather than failed.
+    /// The loop must terminate, hand back the floor payload, and still leave the
+    /// entries that carry no text alone.
+    func testCappingAttachmentTextTerminatesWhenNoFloorPayloadCanFit() {
+        let payload = [
+            ["name": "a.txt", "text": "attachment text that will not fit"],
+            ["name": "b.png", "sent": "yes"],
+            ["name": "c.txt", "text": "a second file, also cut"],
+        ]
+        // 0 and 10 bytes are both below what the floor payload measures, so no
+        // amount of trimming can reach them.
+        for budget in [0, 10] {
+            let capped = ResearchContext.cappingAttachmentText(payload, to: budget)
+            XCTAssertTrue(capped.changed, "budget \(budget): the files were cut")
+            XCTAssertEqual(capped.payload.map { $0["name"] }, payload.map { $0["name"] },
+                           "budget \(budget): names survive the floor")
+            for entry in capped.payload where entry["text"] != nil {
+                XCTAssertEqual(entry["text"], "[…]",
+                               "budget \(budget): every text entry is at the floor")
+            }
+            XCTAssertEqual(capped.payload.first { $0["sent"] != nil }?["sent"], "yes",
+                           "budget \(budget): non-text entries are never prose to cut")
+            XCTAssertGreaterThan(ResearchContext.measure(capped.payload), budget,
+                                 "budget \(budget): the floor genuinely cannot fit, which"
+                                 + " is what makes this the impossible case")
+        }
+    }
+
     func testEvidenceIsBudgetedAndReportsWhatWasDropped() {
         let snippet = String(repeating: "e", count: 600)
         let sources = (1...200).map {

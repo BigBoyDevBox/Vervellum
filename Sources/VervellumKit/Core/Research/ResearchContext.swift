@@ -242,7 +242,10 @@ enum ResearchContext {
     /// runner. Each cut appends the same visible `\n[…]` marker a long single file's
     /// truncation carries (`Attachment.truncated`), and entries without text are left
     /// alone — an image's `sent` marker and an unavailable name are small and must not
-    /// be mistaken for prose. The caller decides what the reader is told.
+    /// be mistaken for prose. A budget below what the payload's *floor* measures — every
+    /// text entry already at `[…]` — cannot be met by trimming, so the floor payload is
+    /// returned instead of trimming against forever. The caller decides what the reader
+    /// is told.
     static func cappingAttachmentText(_ payload: [[String: String]],
                                       to budget: Int) -> (payload: [[String: String]],
                                                           changed: Bool) {
@@ -261,6 +264,24 @@ enum ResearchContext {
             if let marker = text.range(of: "\n[…]", options: .backwards) {
                 text = String(text[..<marker.lowerBound])
             }
+            // The longest entry is already at the "[…]" floor, so every other entry is
+            // at or below it and cutting any of them can only add the marker's bytes
+            // back: the budget is below what this payload's floor can ever measure.
+            // Collapse every text entry to that floor and stop rather than spin — the
+            // loop's one unbounded state (a review finding; the old
+            // `guard keep < text.count` escape could never fire, because
+            // `removeCharacters` is `max(1, …)` and so `keep` always came out below
+            // `text.count`, leaving a floor entry to be re-set to "[…]" with no size
+            // change).
+            if text == "[…]" {
+                for entryIndex in capped.indices where capped[entryIndex]["text"] != nil {
+                    if capped[entryIndex]["text"] != "[…]" {
+                        capped[entryIndex]["text"] = "[…]"
+                        changed = true
+                    }
+                }
+                break
+            }
             if text.isEmpty {
                 capped[index]["text"] = "[…]"
                 changed = true
@@ -273,8 +294,10 @@ enum ResearchContext {
             let excess = measure(capped) - budget
             let density = Double(Data(text.utf8).count) / Double(max(1, text.count))
             let removeCharacters = max(1, Int((Double(excess) / density).rounded()))
+            // `removeCharacters` is at least 1, so the base this pass leaves behind is
+            // always shorter than the one it found: the loop is bounded by the payload's
+            // total character count, whatever budget it is handed.
             let keep = max(0, text.count - removeCharacters)
-            guard keep < text.count else { break }
             let cut = String(text.prefix(keep))
             capped[index]["text"] = cut.isEmpty ? "[…]" : cut + "\n[…]"
             changed = true

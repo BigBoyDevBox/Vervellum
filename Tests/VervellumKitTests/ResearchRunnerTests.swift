@@ -405,7 +405,9 @@ final class ResearchRunnerTests: XCTestCase {
         XCTAssertFalse(chatCalls.isEmpty)
         for call in chatCalls {
             let content = try XCTUnwrap(call.userContent)
-            XCTAssertLessThanOrEqual(content.count, ResearchContext.maxCharacters,
+            // UTF-8 bytes, the unit the ceiling is counted in: a Character count can
+            // sit under a byte budget while the serialized payload is over it.
+            XCTAssertLessThanOrEqual(content.utf8.count, ResearchContext.maxCharacters,
                                      "\(call.url) is over the context ceiling")
         }
     }
