@@ -712,7 +712,7 @@ final class LinuxPanel {
         }
         if !turn.answer.isEmpty {
             let answer = GTK.markupLabel(PangoMarkup.answer(turn.answer, sources: turn.sources))
-            GTK.onLinkActivated(answer, Self.openLink)
+            GTK.onLinkActivated(answer) { [weak self] in self?.handleLink($0) ?? true }
             GTK.append(box, answer)
         }
         if let findings = PangoMarkup.findings(turn.findings) {
@@ -727,22 +727,29 @@ final class LinuxPanel {
             let cited = Set(turn.citedSources(using: validation).map(\.number))
             if let markup = PangoMarkup.sources(turn.sources, cited: cited) {
                 let label = GTK.markupLabel(markup)
-                GTK.onLinkActivated(label, Self.openLink)
+                GTK.onLinkActivated(label) { [weak self] in self?.handleLink($0) ?? true }
                 GTK.append(box, label)
             }
         }
         if let followups = PangoMarkup.followups(turn.followups) {
-            GTK.append(box, GTK.markupLabel(followups))
+            let label = GTK.markupLabel(followups)
+            GTK.onLinkActivated(label) { [weak self] in self?.handleLink($0) ?? true }
+            GTK.append(box, label)
         }
         return box
     }
 
-    /// Opens a link, and always reports it as handled.
+    /// A link in the thread: a follow-up asks, anything else opens in the browser.
     ///
-    /// Returning false for a URI it refused would hand it straight back to GTK's default
-    /// handler, which launches *any* scheme — including `file://`. Since the markup is
-    /// built from model output, refusing has to mean refusing.
-    private static func openLink(_ uri: String) -> Bool {
+    /// Always reports itself handled. Returning false for a URI it refused would hand
+    /// it straight back to GTK's default handler, which launches *any* scheme —
+    /// including `file://`. Since the markup is built from model output, refusing has
+    /// to mean refusing.
+    private func handleLink(_ uri: String) -> Bool {
+        if uri.hasPrefix(PangoMarkup.askScheme) {
+            askFollowup(String(uri.dropFirst(PangoMarkup.askScheme.count)))
+            return true
+        }
         GTK.openLink(uri)
         return true
     }
@@ -753,6 +760,30 @@ final class LinuxPanel {
     /// both times, not the notice the first one printed.
     static func turnToCopy(in thread: ResearchThread) -> ResearchTurn? {
         thread.turns.last { !$0.question.isEmpty }
+    }
+
+    /// What a follow-up link does — the macOS rule, kept identical on purpose: submit
+    /// when the composer holds nothing, load into the field when it does. A half-typed
+    /// question or a pending attachment is not something a suggestion may silently
+    /// replace, and a question asked from a link carries no attachments at all — so
+    /// a screenshot pasted for a question still being written must stay put.
+    private func askFollowup(_ encoded: String) {
+        guard let question = encoded.removingPercentEncoding else { return }
+        let typed = GTK.text(of: composer).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard typed.isEmpty, pendingAttachments.isEmpty else {
+            GTK.setText(composer, question)
+            if !pendingAttachments.isEmpty {
+                appendNotice("Put in the composer — Return sends it with the attachment"
+                             + (pendingAttachments.count == 1 ? "" : "s"))
+            }
+            return
+        }
+        // Set before the call: asking appends and publishes synchronously, so the
+        // render that runs inside it must already know to follow.
+        scrollToNewest = true
+        if active.ask(question, mode: nil, attachments: []) != .started {
+            scrollToNewest = false
+        }
     }
 
     private static func emptyStateMarkup(environment: LinuxEnvironment) -> String {
