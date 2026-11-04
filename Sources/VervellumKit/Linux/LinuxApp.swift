@@ -84,12 +84,12 @@ public enum VervellumLinuxApp {
     /// Runs one headless turn from `--flag "question"`, or explains the usage.
     private static func ask(_ arguments: [String], flag: String,
                             level: ResearchLevel) -> Int32 {
-        guard arguments.count > 1 else {
+        guard let question = CLIQuestion.joined(arguments.dropFirst()) else {
             FileHandle.standardError.write(
                 Data("usage: vervellum \(flag) \"your question\"\n".utf8))
             return 2
         }
-        return runHeadless(question: arguments.dropFirst().joined(separator: " "), mode: level)
+        return runHeadless(question: question, mode: level)
     }
 
     /// Wraps `text` at `width` columns, indenting every line after the first.
