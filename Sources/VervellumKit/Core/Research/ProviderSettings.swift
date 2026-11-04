@@ -1,5 +1,26 @@
 import Foundation
 
+private extension KeyedDecodingContainer {
+    /// A missing value, explicit null, or wrong JSON type all become nil so one damaged
+    /// field cannot discard its whole provider list. Every current caller decodes only a
+    /// UUID, String, or Bool; do not use this to swallow semantic errors from a nested
+    /// custom decoder.
+    func decodeLeniently<T: Decodable>(_ type: T.Type, forKey key: Key) -> T? {
+        (try? decodeIfPresent(type, forKey: key)) ?? nil
+    }
+}
+
+/// Contains one unreadable element in a persisted list instead of letting it discard
+/// every valid neighbour. The profile decoders themselves salvage malformed fields;
+/// this wrapper covers a value that is not a profile object at all.
+private struct LossyDecodable<Value: Decodable>: Decodable {
+    let value: Value?
+
+    init(from decoder: Decoder) throws {
+        value = try? Value(from: decoder)
+    }
+}
+
 /// How Vervellum reaches a web-search backend.
 ///
 /// The kinds are genuinely different protocols, and pretending
@@ -203,16 +224,24 @@ struct SearchProfile: Codable, Equatable, Identifiable {
     /// Lenient, for the reason `ModelProfile.init(from:)` is.
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        let id = try container.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
+        let id = container.decodeLeniently(UUID.self, forKey: .id) ?? UUID()
         self.id = id
-        name = try container.decodeIfPresent(String.self, forKey: .name) ?? ""
+        name = container.decodeLeniently(String.self, forKey: .name) ?? ""
         // An unrecognised kind remains inert rather than failing the whole list or being
         // mistaken for MCP. That is what a settings file written by a build with more
         // backends looks like, and one unknown entry must not cost the user every other
-        // provider or send its key through the wrong protocol.
-        kind = (try? container.decodeIfPresent(SearchProviderKind.self, forKey: .kind)) ?? .mcp
-        endpoint = try container.decodeIfPresent(String.self, forKey: .endpoint) ?? ""
-        keyAccount = try container.decodeIfPresent(String.self, forKey: .keyAccount)
+        // provider or send its key through the wrong protocol. A kind that is present
+        // but not even a string is unknown in the same way, so it is inert too; only an
+        // absent kind takes the original MCP default.
+        if container.contains(.kind),
+           (try? container.decodeNil(forKey: .kind)) != true {
+            kind = (try? container.decode(SearchProviderKind.self, forKey: .kind))
+                ?? .unsupported("")
+        } else {
+            kind = .mcp
+        }
+        endpoint = container.decodeLeniently(String.self, forKey: .endpoint) ?? ""
+        keyAccount = container.decodeLeniently(String.self, forKey: .keyAccount)
             ?? SecretAccount.derived(from: .searchAPIKey, for: id).rawValue
     }
 }
@@ -327,19 +356,19 @@ struct ModelProfile: Codable, Equatable, Identifiable {
     /// re-pasting every endpoint they had configured.
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        let id = try container.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
+        let id = container.decodeLeniently(UUID.self, forKey: .id) ?? UUID()
         self.id = id
-        name = try container.decodeIfPresent(String.self, forKey: .name) ?? ""
-        endpoint = try container.decodeIfPresent(String.self, forKey: .endpoint) ?? ""
-        model = try container.decodeIfPresent(String.self, forKey: .model) ?? ""
-        keyAccount = try container.decodeIfPresent(String.self, forKey: .keyAccount)
+        name = container.decodeLeniently(String.self, forKey: .name) ?? ""
+        endpoint = container.decodeLeniently(String.self, forKey: .endpoint) ?? ""
+        model = container.decodeLeniently(String.self, forKey: .model) ?? ""
+        keyAccount = container.decodeLeniently(String.self, forKey: .keyAccount)
             ?? SecretAccount.derived(from: .modelAPIKey, for: id).rawValue
         // Absent means a settings file written before this existed. Read as "yes": the
         // endpoint either has eyes or answers 400, and `ChatCompletionsClient` turns that
         // 400 into the same turn without the picture plus a notice. An explicit `false`
         // is still honoured and is the right answer for a provider that accepts the part
         // and ignores it.
-        sendsImages = try container.decodeIfPresent(Bool.self, forKey: .sendsImages) ?? true
+        sendsImages = container.decodeLeniently(Bool.self, forKey: .sendsImages) ?? true
     }
 }
 
@@ -697,8 +726,7 @@ struct ProviderSettings: Equatable, Codable {
     /// caller treats as "no list yet" and falls back to the single-provider keys —
     /// a corrupted list costs the extra profiles, never the ability to launch.
     static func decodeModelProfiles(_ text: String) -> [ModelProfile]? {
-        guard let data = text.data(using: .utf8) else { return nil }
-        return try? JSONDecoder().decode([ModelProfile].self, from: data)
+        decodeProfiles(ModelProfile.self, from: text)
     }
 
     static func encodeSearchProfiles(_ profiles: [SearchProfile]) -> String? {
@@ -709,8 +737,23 @@ struct ProviderSettings: Equatable, Codable {
     }
 
     static func decodeSearchProfiles(_ text: String) -> [SearchProfile]? {
+        decodeProfiles(SearchProfile.self, from: text)
+    }
+
+    private static func decodeProfiles<Value: Decodable>(
+        _ type: Value.Type,
+        from text: String
+    ) -> [Value]? {
         guard let data = text.data(using: .utf8) else { return nil }
-        return try? JSONDecoder().decode([SearchProfile].self, from: data)
+        guard let decoded = try? JSONDecoder().decode(
+            [LossyDecodable<Value>].self, from: data)
+        else { return nil }
+        let surviving = decoded.compactMap(\.value)
+        // `[]` is a readable, deliberately empty list. A nonempty array where no row
+        // survived is damaged and keeps the pre-salvage nil contract, allowing callers
+        // to recover the legacy single-provider mirror instead of adopting no provider.
+        guard decoded.isEmpty || !surviving.isEmpty else { return nil }
+        return surviving
     }
 
     // MARK: URL shaping
@@ -861,10 +904,14 @@ struct ProviderSettings: Equatable, Codable {
     /// Lenient for the same reason `ModelProfile.init(from:)` is.
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        modelProfiles = try container.decodeIfPresent([ModelProfile].self, forKey: .modelProfiles) ?? []
-        selectedModelID = try container.decodeIfPresent(UUID.self, forKey: .selectedModelID)
-        searchProfiles = try container.decodeIfPresent([SearchProfile].self, forKey: .searchProfiles) ?? []
-        selectedSearchID = try container.decodeIfPresent(UUID.self, forKey: .selectedSearchID)
+        modelProfiles = (try? container.decode(
+            [LossyDecodable<ModelProfile>].self, forKey: .modelProfiles))?
+            .compactMap(\.value) ?? []
+        selectedModelID = try? container.decode(UUID.self, forKey: .selectedModelID)
+        searchProfiles = (try? container.decode(
+            [LossyDecodable<SearchProfile>].self, forKey: .searchProfiles))?
+            .compactMap(\.value) ?? []
+        selectedSearchID = try? container.decode(UUID.self, forKey: .selectedSearchID)
         // Absent in anything written before the chain existed, and the default there is
         // the same as the default for a fresh install: on.
         // Lenient like `pageReading` below and every other field here: a strict decode
@@ -876,7 +923,7 @@ struct ProviderSettings: Equatable, Codable {
         let hasMode = container.contains(.pageReading)
         let rawMode = hasMode ? try? container.decode(String.self, forKey: .pageReading) : nil
         pageReading = PageReadingMode.persisted(rawMode, isPresent: hasMode)
-        readerEndpoint = try container.decodeIfPresent(String.self, forKey: .readerEndpoint)
+        readerEndpoint = container.decodeLeniently(String.self, forKey: .readerEndpoint)
             ?? Self.defaultReaderEndpoint
     }
 }

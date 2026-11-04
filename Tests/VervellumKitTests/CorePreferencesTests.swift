@@ -223,6 +223,26 @@ final class CorePreferencesTests: XCTestCase {
         XCTAssertEqual(settings.modelName, "fallback")
     }
 
+    /// A readable list with one damaged row is not an unreadable list. Falling back here
+    /// would hide every valid additional provider and make the next save overwrite them.
+    func testAProfileWithWrongTypedFieldsDoesNotCollapseTheStoredList() {
+        let listing = """
+            [
+              {"name": 12, "endpoint": false, "model": [], "sendsImages": "yes"},
+              {"name": "Kept", "endpoint": "https://kept.example/v1", "model": "kept"}
+            ]
+            """
+        let settings = preferences([
+            "modelProviders": listing,
+            "modelEndpoint": "https://legacy.example/v1",
+            "modelName": "legacy",
+        ]).providerSettings
+
+        XCTAssertEqual(settings.modelProfiles.count, 2)
+        XCTAssertEqual(settings.modelProfiles.last?.name, "Kept")
+        XCTAssertEqual(settings.modelProfiles.last?.model, "kept")
+    }
+
     /// The memo behind `providerSettings` must not outlive a write, or Settings would
     /// save a new provider and the panel would keep asking with the old one.
     func testAWriteIsVisibleToTheNextRead() {
