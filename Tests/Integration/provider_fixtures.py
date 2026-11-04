@@ -164,6 +164,13 @@ class ProviderFixtures(unittest.TestCase):
     def model_requests(self):
         return [entry for entry in self.fixture.requests if entry[0] == "/v1/chat/completions"]
 
+    def test_blank_question_is_a_usage_error_before_any_provider_call(self):
+        result = self.run_question(" \n\t ")
+        self.assertEqual(result.returncode, 2)
+        self.assertEqual(result.stdout, "")
+        self.assertEqual(result.stderr, 'usage: vervellum --ask "your question"\n')
+        self.assertEqual(self.fixture.requests, [])
+
     def test_complete_pipeline_and_per_call_accept(self):
         result = self.run_question()
         self.assertEqual(result.returncode, 0, result.stderr)
