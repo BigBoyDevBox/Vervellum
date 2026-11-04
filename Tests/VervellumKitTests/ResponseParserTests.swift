@@ -64,6 +64,12 @@ final class PlanParserTests: XCTestCase {
             return XCTFail("expected a read action")
         }
         XCTAssertEqual(numbers, [1], "an exact integer is still a page")
+
+        let quoted = try step(#"{"action":"read","sources":[true, "3", 1.5]}"#)
+        guard case .read(let numbers) = quoted.action else {
+            return XCTFail("expected a read action")
+        }
+        XCTAssertEqual(numbers, [3], "a quoted integer is still a page; the rest are not")
     }
 
     func testRejectsAnUnknownOrMissingAction() {
