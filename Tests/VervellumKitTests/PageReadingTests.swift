@@ -588,4 +588,13 @@ final class PageReadingTests: XCTestCase {
         XCTAssertTrue(text.contains("reversed"))
         XCTAssertTrue(text.hasSuffix("end."))
     }
+
+    /// A numeric character reference can smuggle a C1 control past the entity
+    /// decoder — `&#x85;` is NEL, `&#x9B;` the single-shift. They are the same class
+    /// of invisible terminal-era character as C0 and are dropped the same way.
+    func testC1ControlsAreDroppedFromPageText() {
+        let html = "<p>Alpha&#x85;Beta&#x9B;Gamma</p>"
+        let text = HTMLTextExtractor.text(from: html, limit: 4_000, minimum: 0)
+        XCTAssertEqual(text, "AlphaBetaGamma")
+    }
 }

@@ -57,7 +57,12 @@ enum EvidenceExtractor {
             return true
         }.prefix(maxSources).enumerated().map { offset, hit in
             Source(number: startNumber + offset,
-                   url: hit.url,
+                   // A URL is a fetch target, but it is displayed too — the same
+                   // payload can hide an override in it to spoof the domain shown,
+                   // or a NUL to truncate the GTK label. `normalized` already
+                   // guaranteed an absolute http(s) URL, and dropping controls can
+                   // only shorten what was valid, never invent a new target.
+                   url: HostileText.stripped(hit.url),
                    title: HostileText.stripped(hit.title),
                    snippet: HostileText.stripped(hit.snippet),
                    publishedAt: hit.date)
