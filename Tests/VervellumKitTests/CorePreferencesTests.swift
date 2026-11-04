@@ -153,6 +153,11 @@ final class CorePreferencesTests: XCTestCase {
         XCTAssertEqual(preferences(["pageReading": "future-proxy"]).providerSettings.pageReading,
                        .off)
         XCTAssertEqual(preferences(["pageReading": 7]).providerSettings.pageReading, .off)
+        // Every mode this build knows survives the scalar store unchanged.
+        for mode in PageReadingMode.allCases {
+            XCTAssertEqual(preferences(["pageReading": mode.rawValue])
+                .providerSettings.pageReading, mode)
+        }
     }
 
     func testChangesAreAnnounced() {
