@@ -24,7 +24,7 @@ final class ComposerThreadSwitchTests: XCTestCase {
         }
 
         let preferences = Preferences(defaults: defaults)
-        preferences.providerSettings = ProviderSettings(modelProfiles: [], searchProfiles: [])
+        preferences.core.providerSettings = ProviderSettings(modelProfiles: [], searchProfiles: [])
         let store = ThreadStore(fileURL: directory.appendingPathComponent("threads.json"),
                                 debounce: 0)
         var archived = ResearchThread()

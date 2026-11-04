@@ -46,6 +46,22 @@ and keys enter `secret-tool` through stdin, never arguments. These calls remain
 synchronous, so a stalled tool can still delay the interface until its budget expires.
 Empty-state redraws reuse their key-presence result until the panel is shown again.
 
+On macOS, saving a changed model or search destination normally stages its replacement
+key in a fresh Keychain account before preferences can point at it. With no replacement,
+the new destination points at a fresh empty account; the old key is never carried across.
+The migrated first model/search accounts and the reader use fixed legacy names for
+downgrade compatibility, so their old values are deleted before a changed endpoint is
+committed; replacements are written only after the settings backend confirms the new
+configuration is durable across a restart. A scalar setting read by an older build
+mirrors the profile that owns its fixed account, falling back to the selected profile
+only after that fixed account is unreferenced and deleted. Every later selection or save
+repeats the deletion barrier for an unowned fixed slot, repairing stale state left by
+older builds, and recognised model/search/reader accounts cannot be assigned across
+provider kinds. Fresh account names are journalled durably before the first Keychain
+write; failed cleanup is retained by account name (not secret value) and retried.
+Keychain refusal or a crash can leave a key absent or an unreferenced stale item, but
+cannot pair an old key with a newly saved destination or make an orphan undiscoverable.
+
 Provider requests use one transport that enforces three rules:
 
 - **Redirects are refused.** `URLSession` re-sends the `Authorization` header to a

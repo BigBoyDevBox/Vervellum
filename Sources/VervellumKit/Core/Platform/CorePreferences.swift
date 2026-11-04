@@ -21,6 +21,14 @@ import Foundation
 /// those three.
 final class CorePreferences {
 
+    enum PersistenceError: LocalizedError {
+        case providerSettings
+
+        var errorDescription: String? {
+            "Could not make the provider settings durable. No replacement key was stored."
+        }
+    }
+
     /// Invoked after any change, so a platform can republish it — `objectWillChange` on
     /// macOS, a redraw on Linux.
     var onChange: (() -> Void)?
@@ -147,33 +155,74 @@ final class CorePreferences {
             return assembled
         }
         set {
-            // Normalised first, so the stored list and the mirrored keys cannot disagree
-            // about an endpoint the rules rewrote. See `ProviderSettings.normalized()`.
-            let settings = newValue.normalized()
-
-            store.setString(ProviderSettings.encodeModelProfiles(settings.modelProfiles),
-                            for: Key.modelProviders)
-            store.setString(settings.selectedModel?.id.uuidString, for: Key.selectedModelProvider)
-            store.setString(ProviderSettings.encodeSearchProfiles(settings.searchProfiles),
-                            for: Key.searchProviders)
-            store.setString(settings.selectedSearch?.id.uuidString, for: Key.selectedSearchProvider)
-
-            // The single-provider keys are mirrored, not merely left behind: they are what
-            // the Linux settings file documents, and what an older build downgraded onto
-            // the same file reads. Writing the *selected* profile into them means such a
-            // build finds the provider the user was last using rather than the first one
-            // in a list it cannot see.
-            store.setString(settings.modelEndpoint, for: Key.modelEndpoint)
-            store.setString(settings.modelName, for: Key.modelName)
-            store.setString(settings.searchEndpoint, for: Key.searchEndpoint)
-            store.setString(settings.searchKind.rawValue, for: Key.searchProvider)
-            store.setBool(settings.modelFallback, for: Key.modelFallback)
-            store.setString(settings.pageReading.rawValue, for: Key.pageReading)
-            store.setString(settings.readerEndpoint, for: Key.readerEndpoint)
-
-            cachedProviderSettings = settings
-            onChange?()
+            // Selection changes elsewhere in the app retain their historical
+            // non-throwing interface. A failed barrier leaves the last durable value
+            // authoritative rather than publishing a configuration a restart loses —
+            // and is still worth a trace, because a `try?` here would leave a
+            // provider transaction's only diagnostic in whatever the store logged.
+            do {
+                try persistProviderSettings(newValue)
+            } catch {
+                FileHandle.standardError.write(Data(
+                    "vervellum warning: provider settings may not be durable\n".utf8))
+            }
         }
+    }
+
+    /// Persists a provider configuration across a process restart before returning.
+    ///
+    /// A fixed Keychain slot is replaced only after this succeeds. `UserDefaults` makes
+    /// values visible to this process immediately but writes them asynchronously; that
+    /// is not a commit point for a destination/credential transaction.
+    func persistProviderSettings(_ newValue: ProviderSettings) throws {
+        let previous = providerSettings
+        let settings = writeProviderSettings(newValue)
+        guard store.synchronize() else {
+            // Every SettingsStore serves reads from memory, so the failed write is
+            // still visible to this process. Roll it back best-effort — the rollback
+            // can fail too — and pin the memo to the durable snapshot either way, or
+            // the next read would report a configuration a restart loses.
+            _ = writeProviderSettings(previous)
+            cachedProviderSettings = previous
+            throw PersistenceError.providerSettings
+        }
+        cachedProviderSettings = settings
+        onChange?()
+    }
+
+    private func writeProviderSettings(_ newValue: ProviderSettings) -> ProviderSettings {
+        // Normalised first, so the stored list and the mirrored keys cannot disagree
+        // about an endpoint the rules rewrote. See `ProviderSettings.normalized()`.
+        let settings = newValue.normalized()
+
+        store.setString(ProviderSettings.encodeModelProfiles(settings.modelProfiles),
+                        for: Key.modelProviders)
+        store.setString(settings.selectedModel?.id.uuidString, for: Key.selectedModelProvider)
+        store.setString(ProviderSettings.encodeSearchProfiles(settings.searchProfiles),
+                        for: Key.searchProviders)
+        store.setString(settings.selectedSearch?.id.uuidString, for: Key.selectedSearchProvider)
+
+        // An older build reads these scalar keys together with the fixed Keychain
+        // accounts. While a fixed slot has an owner, mirror that owner's destination;
+        // otherwise a downgrade would send its credential to a selected derived-account
+        // provider. Once no profile owns the slot, the transaction has deleted it and
+        // the selected provider is a safe, useful fallback. On Linux the migrated single
+        // profile is both owner and selected.
+        let legacyModel = settings.modelProfiles.first {
+            $0.secretAccount == .modelAPIKey
+        } ?? settings.selectedModel
+        let legacySearch = settings.searchProfiles.first {
+            $0.secretAccount == .searchAPIKey
+        } ?? settings.selectedSearch
+        store.setString(legacyModel?.endpoint ?? settings.modelEndpoint, for: Key.modelEndpoint)
+        store.setString(legacyModel?.model ?? settings.modelName, for: Key.modelName)
+        store.setString(legacySearch?.endpoint ?? settings.searchEndpoint, for: Key.searchEndpoint)
+        store.setString((legacySearch?.kind ?? settings.searchKind).rawValue,
+                        for: Key.searchProvider)
+        store.setBool(settings.modelFallback, for: Key.modelFallback)
+        store.setString(settings.pageReading.rawValue, for: Key.pageReading)
+        store.setString(settings.readerEndpoint, for: Key.readerEndpoint)
+        return settings
     }
 
     private func readProviderSettings() -> ProviderSettings {

@@ -239,10 +239,12 @@ Page reading is `pageReading`, one of `"off"`, `"direct"` or `"reader"` (default
 `modelEndpoint` and `modelName` describe one provider, which is all the Linux build
 writes and the shape shown above. The macOS app can configure several and stores them
 under `modelProviders` (a JSON list) with `selectedModelProvider`; when that list is
-present it wins, and `modelEndpoint`/`modelName` are kept as a mirror of whichever
-provider is selected. `/model` lists them and switches between them on Linux too. Search
-providers work the same way: `searchProviders`/`selectedSearchProvider` for the list,
-`searchEndpoint`/`searchProvider` as the mirror.
+present it wins. The scalar `modelEndpoint`/`modelName` pair is kept for older builds:
+while a profile owns their fixed legacy Keychain account it mirrors that owner, and
+after the account is unowned and deleted it mirrors the selection. `/model` lists the
+profiles and switches between them on Linux too. Search providers follow the same rule:
+`searchProviders`/`selectedSearchProvider` hold the list, while
+`searchEndpoint`/`searchProvider` are the downgrade pair.
 
 Then store the keys in your login keyring, or export them:
 

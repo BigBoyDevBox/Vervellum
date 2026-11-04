@@ -81,21 +81,47 @@ final class PreferencesTests: XCTestCase {
 
     /// The shared settings are exercised in `CorePreferencesTests`; this only checks
     /// that the macOS shell really forwards to them rather than keeping its own copy.
-    func testAnEmptySearchEndpointRevertsToTheDefault() {
+    func testAnEmptySearchEndpointRevertsToTheDefault() throws {
         let preferences = Preferences(defaults: defaults)
-        preferences.providerSettings = ProviderSettings(modelEndpoint: "https://api.example.com/v1",
-                                                        modelName: "m",
-                                                        searchEndpoint: "   ")
+        var settings = preferences.providerSettings
+        settings.modelEndpoint = "https://api.example.com/v1"
+        settings.modelName = "m"
+        settings.searchEndpoint = "   "
+        try preferences.commitProviderSettings(settings, secrets: EphemeralSecretStore())
         XCTAssertEqual(preferences.providerSettings.searchEndpoint, ProviderSettings.defaultSearchEndpoint)
     }
 
-    func testProviderSettingsRoundTrip() {
+    func testProviderSettingsRoundTrip() throws {
         let preferences = Preferences(defaults: defaults)
-        let settings = ProviderSettings(modelEndpoint: "https://api.example.com/v1",
-                                        modelName: "some-model",
-                                        searchEndpoint: "https://search.example.com/mcp")
-        preferences.providerSettings = settings
+        var settings = preferences.providerSettings
+        settings.modelEndpoint = "https://api.example.com/v1"
+        settings.modelName = "some-model"
+        settings.searchEndpoint = "https://search.example.com/mcp"
+        try preferences.commitProviderSettings(settings, secrets: EphemeralSecretStore())
         XCTAssertEqual(Preferences(defaults: defaults).providerSettings, settings)
+    }
+
+    func testAProviderSelectionClearsStaleFixedKeysBeforePersistingItsMirror() throws {
+        let preferences = Preferences(defaults: defaults)
+        let first = ModelProfile.new(
+            name: "First", endpoint: "https://first.example/v1", model: "first")
+        let second = ModelProfile.new(
+            name: "Second", endpoint: "https://second.example/v1", model: "second")
+        let original = ProviderSettings(
+            modelProfiles: [first, second], selectedModelID: first.id,
+            searchProfiles: [])
+        // Seed the unsafe state an older build could leave. Production macOS writes do
+        // not expose this raw setter; the transaction below is the behavior under test.
+        preferences.core.providerSettings = original
+        let secrets = SelectionSecretStore([.modelAPIKey: "orphaned legacy key"])
+        var edited = original
+        edited.selectedModelID = second.id
+
+        _ = try preferences.commitProviderSettings(edited, secrets: secrets)
+
+        XCTAssertNil(secrets.value(for: .modelAPIKey))
+        XCTAssertEqual(preferences.providerSettings.selectedModel?.id, second.id)
+        XCTAssertTrue(secrets.operations.contains("delete:model-api-key"))
     }
 
     // MARK: Change notification
@@ -202,5 +228,25 @@ final class PreferencesTests: XCTestCase {
         // directory down; this file had no equivalent.
         addTeardownBlock { try? FileManager.default.removeItem(at: url) }
         return url
+    }
+}
+
+private final class SelectionSecretStore: SecretStore {
+    private var values: [SecretAccount: String]
+    private(set) var operations: [String] = []
+
+    init(_ values: [SecretAccount: String]) { self.values = values }
+
+    var backendDescription: String { "test store" }
+    func value(for account: SecretAccount) -> String? { values[account] }
+
+    func set(_ secret: String, for account: SecretAccount) throws {
+        operations.append("set:\(account.rawValue)")
+        values[account] = secret
+    }
+
+    func delete(_ account: SecretAccount) throws {
+        operations.append("delete:\(account.rawValue)")
+        values[account] = nil
     }
 }
