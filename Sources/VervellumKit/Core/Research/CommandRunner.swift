@@ -82,9 +82,9 @@ final class CommandRunner: CommandRunning {
 
     static let shared = CommandRunner()
 
-    /// Concurrent on purpose. Reading a pipe blocks, and the timeout that has to fire
-    /// *while* it blocks is scheduled on this same queue — on a serial one it would sit
-    /// behind the read it exists to interrupt, and the timeout would never happen.
+    /// A concurrent target for the serial queue each invocation owns. Commands may run
+    /// beside one another, while one command's pipe, exit, timeout and cancellation
+    /// events are ordered against each other.
     private static let queue = DispatchQueue(label: "ch.lkmc.Vervellum.command",
                                              attributes: .concurrent)
 
@@ -96,17 +96,23 @@ final class CommandRunner: CommandRunning {
     /// killed.
     ///
     /// `Process.terminate()` sends `SIGTERM`, which is a *request*: a program may catch
-    /// it, and a wedged one cannot answer at all. Two things then go wrong, and only one
-    /// of them is the caller's. The call itself is answered either way — the grace timer
-    /// resumes it — but the child would keep running, still holding the pipe, still
-    /// spending the user's search quota, with one dispatch thread parked on a read that
-    /// can never end. Dispatch's pool is bounded, so enough of those would eventually
-    /// starve the very timers this queue exists to keep free.
+    /// it, and a wedged one cannot answer at all. The event-driven reader means no
+    /// dispatch thread is parked meanwhile, but leaving that process alive would still
+    /// spend the user's search quota and retain Foundation's process resources after the
+    /// caller was told the command had stopped.
     ///
-    /// So the grace period ends in `SIGKILL`, which cannot be caught. That closes the
-    /// pipe, unblocks the read, lets `waitUntilExit` reap the child, and returns the
-    /// thread — the leak is ended rather than moved somewhere quieter.
+    /// So the grace period ends in `SIGKILL`, which cannot be caught. Foundation then
+    /// reaps the direct child and the leak is ended rather than moved somewhere quieter.
     static let terminationGrace: TimeInterval = 2
+
+    /// How long to drain bytes already reaching the pipe after the direct child exits.
+    ///
+    /// A descendant may have inherited stdout. Waiting for EOF would then make that
+    /// unrelated process own this call's lifetime; closing immediately would truncate
+    /// an ordinary command whose last buffered chunk is delivered just after its exit
+    /// notification. This short grace separates those cases without making the
+    /// descendant part of the command Vervellum launched.
+    static let postExitDrainGrace: TimeInterval = 0.25
 
     // MARK: Resolving
 
@@ -199,7 +205,8 @@ final class CommandRunner: CommandRunning {
         process.standardError = FileHandle.nullDevice
         process.standardInput = FileHandle.nullDevice
 
-        let control = Control(process: process) { reason in
+        let control = Control(process: process, pipe: pipe, limit: limit,
+                              timeout: timeout) { reason in
             switch reason {
             case .timedOut:
                 return ResearchError(
@@ -209,183 +216,328 @@ final class CommandRunner: CommandRunning {
                     "The search command printed more than \(limit / 1024) KB.")
             case .cancelled:
                 return ResearchError.cancelled
+            case .readFailed:
+                return ResearchError(
+                    "Vervellum could not read the search command's output.")
             }
         }
 
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
-                control.attach(continuation)
-                Self.queue.async {
-                    let launched: Bool
-                    do {
-                        launched = try control.start()
-                    } catch {
-                        // The name is not in the message: it came from the settings, and
-                        // the settings screen is where it can be fixed.
-                        control.finish(throwing: ResearchError(
-                            "Vervellum could not start the search command. Check the "
-                            + "command in the provider settings."))
-                        return
-                    }
-                    // Cancelled in the gap before the launch. Returning here rather than
-                    // falling through matters: with no child holding the pipe's write
-                    // end, the read below would block on a pipe that will never close.
-                    guard launched else {
-                        control.finish(throwing: ResearchError.cancelled)
-                        return
-                    }
-
-                    let deadline = DispatchWorkItem { control.stop(because: .timedOut) }
-                    Self.queue.asyncAfter(deadline: .now() + timeout, execute: deadline)
-
-                    // Blocking here is safe exactly as far as `Control.stop` is: this ends
-                    // when the child exits, and a child that will not exit is answered by
-                    // the grace timer rather than by this thread — see `terminationGrace`.
-                    let handle = pipe.fileHandleForReading
-                    var output = Data()
-                    while true {
-                        let chunk = handle.readData(ofLength: Self.chunkSize)
-                        if chunk.isEmpty { break }
-                        output.append(chunk)
-                        if output.count > limit {
-                            control.stop(because: .tooMuchOutput)
-                            break
-                        }
-                    }
-                    process.waitUntilExit()
-                    deadline.cancel()
-                    try? handle.close()
-
-                    guard let reason = control.reason else {
-                        control.finish(returning: (process.terminationStatus, output))
-                        return
-                    }
-                    // The deadline and a natural exit can land in the same moment, and
-                    // `DispatchWorkItem.cancel()` cannot stop one that has already begun —
-                    // so a search that finished can be sitting here labelled a timeout,
-                    // with its results in hand. A child that exited by itself has an
-                    // answer worth having, so it reports its own status. Only `.timedOut`
-                    // is forgiven this way: `.tooMuchOutput` is decided by what *this*
-                    // side read rather than by how the child died, and stays an error
-                    // however it ended.
-                    if reason == .timedOut, process.terminationReason == .exit {
-                        control.finish(returning: (process.terminationStatus, output))
-                        return
-                    }
-                    control.finish(throwing: control.failure(reason))
-                }
+                control.begin(continuation)
             }
         } onCancel: {
             control.stop(because: .cancelled)
         }
     }
 
-    /// The one piece of shared state, and the reason it is a type rather than a few
-    /// captured variables: it is written from a timer, from a cancellation handler and
-    /// from the reading thread, any of them can arrive first, and exactly one of them may
-    /// resume the caller.
+    /// One command's event loop. Nothing blocks this queue: stdout is read only after a
+    /// dispatch source reports bytes, and direct-child exit is its own event rather than
+    /// something inferred from pipe EOF. That distinction is what prevents a descendant
+    /// which inherited stdout from holding the caller forever.
     private final class Control: @unchecked Sendable {
 
-        enum Reason { case timedOut, tooMuchOutput, cancelled }
+        enum Reason: Equatable { case timedOut, tooMuchOutput, cancelled, readFailed }
 
         /// How a stop reason is worded. Held here so `stop` can answer the caller from a
         /// timer without knowing what the timeout or the limit was.
         let failure: (Reason) -> Error
 
         private let process: Process
-        private let lock = NSLock()
-        private var running = false
+        private let pipe: Pipe
+        private let limit: Int
+        private let timeout: TimeInterval
+        private let eventQueue: DispatchQueue
+        private var source: DispatchSourceRead?
+        private var timeoutItem: DispatchWorkItem?
+        private var postExitItem: DispatchWorkItem?
+        private var escalationItem: DispatchWorkItem?
+        private var launched = false
+        private var childExited = false
+        private var exitStatus: Int32?
+        private var exitReason: Process.TerminationReason?
+        private var sawEOF = false
+        private var output = Data()
         private var stopped: Reason?
+        /// True only when the timeout found the direct child already stopped. A child
+        /// that exits zero *because* it handled our SIGTERM still timed out.
+        private var timeoutFoundNaturalExit = false
+        private var completed = false
         private var continuation: CheckedContinuation<(status: Int32, output: Data), Error>?
 
-        init(process: Process, failure: @escaping (Reason) -> Error) {
+        init(process: Process, pipe: Pipe, limit: Int, timeout: TimeInterval,
+             failure: @escaping (Reason) -> Error) {
             self.process = process
+            self.pipe = pipe
+            self.limit = limit
+            self.timeout = timeout
             self.failure = failure
+            self.eventQueue = DispatchQueue(
+                label: "ch.lkmc.Vervellum.command.run.\(UUID().uuidString)",
+                target: CommandRunner.queue)
         }
 
-        var reason: Reason? {
-            lock.lock()
-            defer { lock.unlock() }
-            return stopped
-        }
-
-        func attach(_ continuation: CheckedContinuation<(status: Int32, output: Data), Error>) {
-            lock.lock()
-            self.continuation = continuation
-            lock.unlock()
-        }
-
-        /// Resumes the caller, once. Every later attempt is a no-op, which is what lets
-        /// the grace timer and the reading thread both be free to end the call without
-        /// either having to know whether the other got there first.
-        func finish(returning value: (status: Int32, output: Data)) {
-            take()?.resume(returning: value)
-        }
-
-        func finish(throwing error: Error) {
-            take()?.resume(throwing: error)
-        }
-
-        private func take() -> CheckedContinuation<(status: Int32, output: Data), Error>? {
-            lock.lock()
-            defer { lock.unlock() }
-            let pending = continuation
-            continuation = nil
-            return pending
-        }
-
-        /// Starts the process unless something already asked for it to stop, and says
-        /// which happened. A task cancelled in the moment between the call and the
-        /// launch must not leave a child running with nobody waiting for it — and the
-        /// caller has to know that no child exists, because a great deal of what it does
-        /// next assumes one is holding the other end of a pipe.
-        func start() throws -> Bool {
-            lock.lock()
-            if stopped != nil {
-                lock.unlock()
-                return false
+        func begin(_ continuation: CheckedContinuation<(status: Int32, output: Data), Error>) {
+            eventQueue.async { [self] in
+                self.continuation = continuation
+                guard let stopped else {
+                    launch()
+                    return
+                }
+                complete(throwing: failure(stopped))
             }
-            lock.unlock()
-            try process.run()
-            lock.lock()
-            let cancelledDuringLaunch = stopped
-            running = true
-            lock.unlock()
-            if let cancelledDuringLaunch { signal(because: cancelledDuringLaunch) }
-            return true
+        }
+
+        private func launch() {
+            // Foundation owns the launched process until it has reaped it. A weak
+            // capture avoids a Process-Control retain cycle and, on Darwin, avoids
+            // clearing a termination handler while Foundation is still finishing its
+            // own pipe bookkeeping.
+            process.terminationHandler = { [weak self] ended in
+                guard let self else { return }
+                let status = ended.terminationStatus
+                let reason = ended.terminationReason
+                eventQueue.async { [self] in
+                    self.childDidExit(status: status, reason: reason)
+                }
+            }
+            do {
+                try process.run()
+            } catch {
+                process.terminationHandler = nil
+                // The name and the foreign error are absent: both came from the
+                // provider settings or the operating system, and neither is safe or
+                // useful in a message the app displays.
+                complete(throwing: ResearchError(
+                    "Vervellum could not start the search command. Check the "
+                    + "command in the provider settings."))
+                return
+            }
+            launched = true
+
+            // `Process` duplicated this descriptor into the child. Keeping the parent's
+            // writer open would suppress EOF even for a command with no descendants.
+            try? pipe.fileHandleForWriting.close()
+            startReading()
+
+            let timeoutItem = DispatchWorkItem { [weak self] in
+                self?.stopOnEventQueue(because: .timedOut)
+            }
+            self.timeoutItem = timeoutItem
+            eventQueue.asyncAfter(deadline: .now() + max(0, timeout), execute: timeoutItem)
+        }
+
+        private func startReading() {
+            let handle = pipe.fileHandleForReading
+            let source = DispatchSource.makeReadSource(
+                fileDescriptor: handle.fileDescriptor, queue: eventQueue)
+            source.setEventHandler { [weak self, weak source] in
+                guard let self, let source else { return }
+                self.readAnnounced(source.data)
+            }
+            source.setCancelHandler { try? handle.close() }
+            self.source = source
+            source.resume()
+        }
+
+        /// Reads no more than the dispatch source announced, so this event handler can
+        /// never park waiting for a writer. More bytes produce another source event.
+        private func readAnnounced(_ announced: UInt) {
+            guard !completed, !sawEOF else { return }
+            guard announced > 0 else {
+                reachedEOF()
+                return
+            }
+
+            var remaining = announced > UInt(Int.max) ? Int.max : Int(announced)
+            while remaining > 0, !completed, !sawEOF {
+                // Keep one byte beyond the limit so crossing it is observable, without
+                // overflowing when a caller deliberately uses `Int.max` as no limit.
+                let remainingBeforeLimit = limit >= output.count
+                    ? limit - output.count
+                    : 0
+                let room = remainingBeforeLimit == Int.max
+                    ? Int.max
+                    : remainingBeforeLimit + 1
+                let count = min(CommandRunner.chunkSize, remaining, room)
+                do {
+                    let chunk = try pipe.fileHandleForReading.read(upToCount: count) ?? Data()
+                    guard !chunk.isEmpty else {
+                        reachedEOF()
+                        return
+                    }
+                    output.append(chunk)
+                    remaining -= chunk.count
+                    if output.count > limit {
+                        stopOnEventQueue(because: .tooMuchOutput)
+                        return
+                    }
+                } catch {
+                    stopOnEventQueue(because: .readFailed)
+                    return
+                }
+            }
+        }
+
+        private func reachedEOF() {
+            guard !sawEOF else { return }
+            sawEOF = true
+            cancelReading()
+            finishIfSettled()
+        }
+
+        private func childDidExit(status: Int32, reason: Process.TerminationReason) {
+            childExited = true
+            exitStatus = status
+            exitReason = reason
+            timeoutItem?.cancel()
+            timeoutItem = nil
+            escalationItem?.cancel()
+            escalationItem = nil
+            guard !completed else { return }
+
+            if let stopped,
+               !(stopped == .timedOut && timeoutFoundNaturalExit && reason == .exit) {
+                complete(throwing: failure(stopped))
+                return
+            }
+            if sawEOF {
+                finishIfSettled()
+                return
+            }
+
+            // The direct child is done, but a final pipe event may still be queued.
+            // Give it one short drain window; EOF is not required because a descendant
+            // may own another copy of the writer.
+            let postExitItem = DispatchWorkItem { [weak self] in
+                self?.finishAfterDrainGrace()
+            }
+            self.postExitItem = postExitItem
+            eventQueue.asyncAfter(
+                deadline: .now() + CommandRunner.postExitDrainGrace,
+                execute: postExitItem)
+        }
+
+        private func finishAfterDrainGrace() {
+            guard !completed, childExited else { return }
+            // Read-source data is meaningful only in its event handler. Reading its
+            // last observed count here could issue a stale read and block until an
+            // inherited writer closes — the exact lifetime coupling this grace avoids.
+            // Any bytes present during the grace schedule their own event on this same
+            // serial queue and are therefore drained before this timer runs.
+            cancelReading()
+            finishIfSettled(pipeMayRemainOpen: true)
+        }
+
+        private func finishIfSettled(pipeMayRemainOpen: Bool = false) {
+            guard childExited, sawEOF || pipeMayRemainOpen,
+                  let status = exitStatus else { return }
+            if let stopped,
+               !(stopped == .timedOut && timeoutFoundNaturalExit && exitReason == .exit) {
+                complete(throwing: failure(stopped))
+            } else {
+                complete(returning: (status, output))
+            }
         }
 
         /// Records why the command is being stopped and stops it. The first reason wins:
         /// a timeout that fires while a cancellation is already tearing the process down
         /// should not relabel what happened.
         func stop(because reason: Reason) {
-            lock.lock()
-            guard stopped == nil else {
-                lock.unlock()
-                return
-            }
-            stopped = reason
-            let live = running
-            lock.unlock()
-            if live { signal(because: reason) }
+            eventQueue.async { [weak self] in self?.stopOnEventQueue(because: reason) }
         }
 
-        /// Asks the child to stop, insists if it will not, and answers the caller either
-        /// way. See `CommandRunner.terminationGrace`.
-        private func signal(because reason: Reason) {
-            process.terminate()
-            CommandRunner.queue.asyncAfter(
-                deadline: .now() + CommandRunner.terminationGrace
-            ) { [weak self] in
-                guard let self else { return }
-                // `isRunning` first, so a child already reaped by `waitUntilExit` is not
-                // signalled — which is also what keeps this off a pid the system has
-                // since handed to somebody else.
-                if self.process.isRunning {
-                    kill(self.process.processIdentifier, SIGKILL)
+        private func stopOnEventQueue(because reason: Reason) {
+            guard !completed, stopped == nil else { return }
+            stopped = reason
+            timeoutItem?.cancel()
+            timeoutItem = nil
+
+            // A deadline and a natural exit can become runnable together. Preserve the
+            // direct child's final pipe events while its termination callback catches
+            // up. This flag is set only before Vervellum sends SIGTERM: a command that
+            // handles our signal by exiting zero still exceeded its deadline.
+            if reason == .timedOut, launched {
+                if childExited, exitReason == .exit {
+                    timeoutFoundNaturalExit = true
+                    return
                 }
-                self.finish(throwing: self.failure(reason))
+                if !childExited, !process.isRunning {
+                    timeoutFoundNaturalExit = true
+                    return
+                }
             }
+
+            postExitItem?.cancel()
+            postExitItem = nil
+            cancelReading()
+
+            guard launched else {
+                // `begin` has not run yet. It will see this reason after attaching the
+                // continuation and answer without launching a process.
+                if continuation != nil { complete(throwing: failure(reason)) }
+                return
+            }
+            guard !childExited else {
+                complete(throwing: failure(reason))
+                return
+            }
+
+            if process.isRunning { process.terminate() }
+            let escalationItem = DispatchWorkItem { [weak self] in
+                guard let self else { return }
+                guard !childExited else { return }
+                // `isRunning` first, so a child already reaped is not signalled — which
+                // also keeps this off a pid the system has since handed to somebody else.
+                if process.isRunning { kill(process.processIdentifier, SIGKILL) }
+                complete(throwing: failure(reason))
+            }
+            self.escalationItem = escalationItem
+            eventQueue.asyncAfter(
+                deadline: .now() + CommandRunner.terminationGrace,
+                execute: escalationItem)
+        }
+
+        private func cancelReading() {
+            guard let source else {
+                if !launched { try? pipe.fileHandleForReading.close() }
+                return
+            }
+            self.source = nil
+            source.cancel()
+        }
+
+        /// Resumes the caller once and cancels every event that no longer owns work.
+        private func complete(returning value: (status: Int32, output: Data)) {
+            guard !completed else { return }
+            completed = true
+            timeoutItem?.cancel()
+            timeoutItem = nil
+            postExitItem?.cancel()
+            postExitItem = nil
+            escalationItem?.cancel()
+            escalationItem = nil
+            cancelReading()
+            try? pipe.fileHandleForWriting.close()
+            let continuation = self.continuation
+            self.continuation = nil
+            continuation?.resume(returning: value)
+        }
+
+        private func complete(throwing error: Error) {
+            guard !completed else { return }
+            completed = true
+            timeoutItem?.cancel()
+            timeoutItem = nil
+            postExitItem?.cancel()
+            postExitItem = nil
+            escalationItem?.cancel()
+            escalationItem = nil
+            cancelReading()
+            try? pipe.fileHandleForWriting.close()
+            let continuation = self.continuation
+            self.continuation = nil
+            continuation?.resume(throwing: error)
         }
     }
 }
