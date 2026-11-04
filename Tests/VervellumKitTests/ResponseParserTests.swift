@@ -295,7 +295,9 @@ final class AssessmentParserTests: XCTestCase {
         let assessment = try AssessmentParser.parse(object, sourceCount: 1)
         XCTAssertEqual(assessment.findings.map(\.claim), ["A claim"])
         XCTAssertEqual(assessment.limitations, "")
-        XCTAssertEqual(assessment.followups, ["Clean one?", "Clean two?", "Clean three?"])
+        let expectedClean = ["Clean one?", "Clean two?", "Clean three?", "Clean four?"]
+        XCTAssertEqual(assessment.followups,
+                       Array(expectedClean.prefix(AssessmentParser.maxFollowups)))
         XCTAssertTrue(assessment.notices.contains(.assessmentLinkDropped))
     }
 

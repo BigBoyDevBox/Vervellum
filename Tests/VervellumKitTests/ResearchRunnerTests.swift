@@ -2221,18 +2221,20 @@ final class ResearchRunnerTests: XCTestCase {
     /// not cite anything itself; otherwise an uncited draft and uncited rewrite evade
     /// the relative "did the draft lose citations?" check together.
     func testAnUncitedDraftCannotBeReplacedByAnUncitedRevision() async throws {
-        let transport = revisionTransport(
-            verdict: "contradicted",
-            answer: ["Parallax is measured in degrees."],
-            revision: .stream(["Parallax is measured in arcseconds."]))
+        for verdict in ["contradicted", "mixed"] {
+            let transport = revisionTransport(
+                verdict: verdict,
+                answer: ["Parallax is measured in degrees."],
+                revision: .stream(["Parallax is measured in arcseconds."]))
 
-        let turn = await run("How is stellar parallax measured?", transport: transport)
+            let turn = await run("How is stellar parallax measured?", transport: transport)
 
-        XCTAssertEqual(turn.stage, .complete, turn.failure ?? "no failure recorded")
-        XCTAssertEqual(turn.answer, "Parallax is measured in degrees.")
-        XCTAssertNil(turn.draftAnswer)
-        XCTAssertTrue(turn.notices.contains(.revisionUnavailable), "\(turn.notices)")
-        XCTAssertFalse(turn.notices.contains(.answerRevised))
+            XCTAssertEqual(turn.stage, .complete, turn.failure ?? "no failure recorded")
+            XCTAssertEqual(turn.answer, "Parallax is measured in degrees.", verdict)
+            XCTAssertNil(turn.draftAnswer)
+            XCTAssertTrue(turn.notices.contains(.revisionUnavailable), "\(turn.notices)")
+            XCTAssertFalse(turn.notices.contains(.answerRevised))
+        }
     }
 
     /// The common case, and the one that decides whether this stage costs a call on

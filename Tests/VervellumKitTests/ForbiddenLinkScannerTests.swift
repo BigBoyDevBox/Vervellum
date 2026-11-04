@@ -49,6 +49,10 @@ final class ForbiddenLinkScannerTests: XCTestCase {
             "example.design/path",
             "docs.example.co.uk/path",
             "www.example.invalid/path",
+            "example.art",
+            "example.game",
+            "example.link",
+            "example.page",
         ]
         for example in examples {
             XCTAssertFalse(ForbiddenLinkScanner.links(in: example).isEmpty, example)
@@ -58,7 +62,7 @@ final class ForbiddenLinkScannerTests: XCTestCase {
     func testIgnoresHighFrequencyDomainAndMarkdownLookalikes() {
         let examples = [
             "3.14", "v1.2.3", "README.md", "package.json", "archive.tar.gz", "drawing.ai",
-            "main.swift", "build.sh", "Vervellum.app", "alice@example.com",
+            "main.swift", "build.sh", "Vervellum.app", "movie.mov", "alice@example.com",
             "ASP.NET", "VB.NET", "ADO.NET",
             "object.property", "// comment", "/usr/local/bin", "[1][2]", "[term][case]",
             "[1]: This source says the claim is supported",
@@ -94,7 +98,22 @@ final class ForbiddenLinkScannerTests: XCTestCase {
         XCTAssertEqual(ForbiddenLinkScanner.links(in: "[docs](https://example.com)").count, 1)
     }
 
-    func testManyRealMatchesAreDeduplicatedWithoutQuadraticWork() {
+    func testAnImageMayBeNestedInsideALinkButLinksMayNotNest() {
+        XCTAssertEqual(ForbiddenLinkScanner.links(in: "[![moon](moon.jpg)](/uri)"),
+                       ["[![moon](moon.jpg)](/uri)"])
+        XCTAssertEqual(ForbiddenLinkScanner.links(in: "[a [b](u1)](u2)"), ["[b](u1)"])
+        XCTAssertEqual(ForbiddenLinkScanner.links(in: #"\![a](b)"#), ["[a](b)"])
+    }
+
+    func testSentencePunctuationIsNotPartOfTheDestination() {
+        XCTAssertEqual(ForbiddenLinkScanner.links(in: "Visit example.com."), ["example.com"])
+        XCTAssertEqual(ForbiddenLinkScanner.links(in: "See https://example.com/a)."),
+                       ["https://example.com/a"])
+        XCTAssertEqual(ForbiddenLinkScanner.links(in: "See <https://example.com/a>."),
+                       ["<https://example.com/a>"])
+    }
+
+    func testManyDistinctMatchesAreAllReported() {
         let text = (0..<2_000).map { "host\($0).example.com" }.joined(separator: " ")
         XCTAssertEqual(ForbiddenLinkScanner.links(in: text).count, 2_000)
     }

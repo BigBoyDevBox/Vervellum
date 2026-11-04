@@ -12,6 +12,12 @@ import Foundation
 /// implementation stays to bounded regular expressions plus small structural checks.
 /// The bare-domain pass is conservative around filenames and code-like member access:
 /// a false positive puts a permanent trust warning on otherwise valid prose.
+///
+/// `codeRanges` exclude Markdown *syntax* examples such as `[key](value)`, not raw
+/// addresses. The model-facing rule forbids URLs and bare domains anywhere in an
+/// answer, including code, because a destination remains copyable even when a renderer
+/// does not activate it. That asymmetry is intentional and keeps the numeric-only
+/// citation boundary independent of one renderer's autolink behavior.
 enum ForbiddenLinkScanner {
 
     private struct Candidate {
@@ -162,7 +168,18 @@ enum ForbiddenLinkScanner {
                 found.append(Candidate(range: NSRange(wholeRange, in: text),
                                        text: String(text[wholeRange])))
             }
-            openBrackets.removeAll(keepingCapacity: true)
+            // CommonMark permits an image inside a link, but never a link inside a
+            // link. Keep the outer opener after an image; a real link deactivates it.
+            let isImage: Bool
+            if opener > text.startIndex {
+                let marker = text.index(before: opener)
+                isImage = text[marker] == "!" && !isEscaped(marker, in: text)
+            } else {
+                isImage = false
+            }
+            if !isImage {
+                openBrackets.removeAll(keepingCapacity: true)
+            }
             index = text.index(after: closeParenthesis)
         }
         return found
@@ -354,7 +371,7 @@ enum ForbiddenLinkScanner {
         "7z", "a", "ai", "app", "bat", "bash", "bz2", "c", "cc", "cfg", "cmd", "conf",
         "cpp", "csv", "css", "deb", "dll", "dmg", "doc", "docx", "dylib", "exe",
         "fish", "gif", "go", "gz", "h", "hpp", "html", "ini", "java", "jpeg", "jpg",
-        "js", "json", "jsx", "kt", "kts", "lock", "log", "m", "markdown", "md", "mm",
+        "js", "json", "jsx", "kt", "kts", "lock", "log", "m", "markdown", "md", "mm", "mov",
         "o", "pdf", "pbxproj", "pkg", "plist", "png", "ppt", "pptx", "ps1", "py",
         "rar", "rb", "rpm", "rs", "scala", "sh", "so", "svg", "swift", "tar", "toml",
         "ts", "tsx", "txt", "webp", "xls", "xlsx", "xcconfig", "xml", "xz", "yaml",
@@ -367,12 +384,16 @@ enum ForbiddenLinkScanner {
     /// Lowercase spellings remain domains, as do these labels when they carry a path.
     private static let technologyDomainLookalikes: Set<String> = ["ADO.NET", "ASP.NET", "VB.NET"]
 
+    /// High-confidence suffixes that make a bare host destination-like on their own.
+    /// An unknown alphabetic suffix is still accepted with a path or port; common file
+    /// suffixes stay suppressed without that stronger signal.
     private static let genericTLDs: Set<String> = [
-        "academy", "aero", "agency", "ai", "app", "biz", "blog", "cat", "center", "cloud",
-        "co", "com", "company", "coop", "dev", "digital", "edu", "email", "global", "gov",
-        "group", "info", "int", "io", "jobs", "life", "live", "me", "media", "mil", "mobi",
-        "museum", "name", "net", "network", "news", "one", "online", "org", "pro", "services",
-        "shop", "site", "social", "solutions", "space", "store", "studio", "support", "systems",
-        "tech", "today", "travel", "tv", "website", "world", "xyz",
+        "academy", "aero", "agency", "ai", "app", "art", "biz", "blog", "cat", "center",
+        "cloud", "co", "com", "company", "coop", "dev", "digital", "edu", "email", "game",
+        "global", "gov", "group", "info", "int", "io", "jobs", "life", "link", "live", "me",
+        "media", "mil", "mobi", "mov", "museum", "name", "net", "network", "news", "one",
+        "online", "org", "page", "pro", "services", "shop", "site", "social", "solutions",
+        "space", "store", "studio", "support", "systems", "tech", "today", "travel", "tv",
+        "website", "world", "xyz",
     ]
 }
