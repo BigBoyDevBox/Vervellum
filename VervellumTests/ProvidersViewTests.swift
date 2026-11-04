@@ -34,7 +34,7 @@ final class ProvidersViewTests: XCTestCase {
         let field = try XCTUnwrap(secureField(in: first.hosting))
         let storedWidth = field.bounds.width
 
-        try clickClear(beside: field, in: first.window)
+        clickClear(beside: field, in: first.hosting, window: first.window)
         settle(first.hosting)
 
         XCTAssertGreaterThan(field.bounds.width, storedWidth + 20,
@@ -78,83 +78,24 @@ final class ProvidersViewTests: XCTestCase {
     }
 
     private func clickClear(beside field: NSSecureTextField,
-                            in window: NSWindow) throws {
-        // The field's rect is converted all the way to screen coordinates —
-        // convert(_, to: nil) reaches the window's coordinate system and
-        // convertToScreen finishes the trip — because the button's accessibility
-        // frame is measured in that same global space.
-        let fieldRect = window.convertToScreen(field.convert(field.bounds, to: nil))
-        let button = try XCTUnwrap(clearButton(beside: fieldRect),
-                                   "no Clear button beside the key field")
-        // A synthesized click never reaches the button here: the test host stays
-        // an inactive app, and both window.sendEvent and a posted CGEvent are
-        // swallowed as first-mouse before SwiftUI sees a press. Pressing through
-        // the accessibility element the button was located as is reliable.
-        XCTAssertEqual(AXUIElementPerformAction(button, kAXPressAction as CFString),
-                       .success)
-    }
-
-    /// The accessibility element for the Clear button on the field's own row.
-    /// This OS renders SwiftUI's buttons without an NSButton to click — hits are
-    /// answered inside the hosting view — so the button is located through the
-    /// accessibility tree by role and label rather than assumed to sit a fixed
-    /// offset past the field.
-    private func clearButton(beside fieldRect: NSRect) -> AXUIElement? {
-        var found: [AXUIElement] = []
-        let app = AXUIElementCreateApplication(ProcessInfo.processInfo.processIdentifier)
-        for element in attribute(kAXWindowsAttribute, of: app) as? [AXUIElement] ?? [] {
-            collectClearButtons(in: element, into: &found)
+                            in hosting: NSView,
+                            window: NSWindow) {
+        let fieldRect = field.convert(field.bounds, to: hosting)
+        let point = NSPoint(x: fieldRect.maxX + 36, y: fieldRect.midY)
+        let location = hosting.convert(point, to: nil)
+        for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+            let event = NSEvent.mouseEvent(
+                with: type,
+                location: location,
+                modifierFlags: [],
+                timestamp: ProcessInfo.processInfo.systemUptime,
+                windowNumber: window.windowNumber,
+                context: nil,
+                eventNumber: 0,
+                clickCount: 1,
+                pressure: type == .leftMouseDown ? 1 : 0)
+            if let event { window.sendEvent(event) }
         }
-        // More than one key row can offer Clear at once; the field's own row is
-        // the one nearest to its middle. `fieldRect` is a Cocoa screen rect —
-        // measured up from the bottom, where AX measures down — so the AX frames
-        // are flipped before comparing distances.
-        let height = mainScreenHeight
-        return found.min { lhs, rhs in
-            distance(from: axFrame(of: lhs), to: fieldRect, screenHeight: height)
-                < distance(from: axFrame(of: rhs), to: fieldRect, screenHeight: height)
-        }
-    }
-
-    private func collectClearButtons(in element: AXUIElement,
-                                     into found: inout [AXUIElement]) {
-        if attribute(kAXRoleAttribute, of: element) as? String == kAXButtonRole as String,
-           [kAXTitleAttribute, kAXDescriptionAttribute]
-               .contains(where: { attribute($0, of: element) as? String == "Clear" }) {
-            found.append(element)
-        }
-        for child in attribute(kAXChildrenAttribute, of: element) as? [AXUIElement] ?? [] {
-            collectClearButtons(in: child, into: &found)
-        }
-    }
-
-    private func attribute(_ name: String, of element: AXUIElement) -> CFTypeRef? {
-        var value: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(element, name as CFString, &value) == .success
-        else { return nil }
-        return value
-    }
-
-    private func axFrame(of element: AXUIElement) -> NSRect? {
-        var position = CGPoint.zero
-        var size = CGSize.zero
-        guard let positionValue = attribute(kAXPositionAttribute, of: element),
-              let sizeValue = attribute(kAXSizeAttribute, of: element),
-              AXValueGetValue(positionValue as! AXValue, .cgPoint, &position),
-              AXValueGetValue(sizeValue as! AXValue, .cgSize, &size)
-        else { return nil }
-        return NSRect(origin: position, size: size)
-    }
-
-    private var mainScreenHeight: CGFloat { NSScreen.screens.first?.frame.height ?? 0 }
-
-    /// Between an AX-space frame and a Cocoa screen-space rect: the AX midpoint is
-    /// flipped into Cocoa space before the comparison.
-    private func distance(from axRect: NSRect?, to cocoaRect: NSRect,
-                          screenHeight: CGFloat) -> CGFloat {
-        guard let axRect else { return .greatestFiniteMagnitude }
-        return hypot(axRect.midX - cocoaRect.midX,
-                     (screenHeight - axRect.midY) - cocoaRect.midY)
     }
 }
 

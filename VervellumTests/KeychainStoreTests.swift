@@ -91,14 +91,14 @@ private final class FakeKeychainOperations {
         copyMatching: { [unowned self] query, result in
             let account = self.account(in: query)
             self.operations.append("copy:\(account)")
-            // Both halves of the real contract: a miss still initialises the result
-            // pointer, and a hit hands back an object the caller owns at +1 —
-            // `passRetained`, because `CFRetain` itself is unavailable in Swift.
+            // A miss still initialises the result pointer, like the real call. A hit is a
+            // plain assignment: the pointee is a managed `CFTypeRef?`, so ARC already
+            // gives the caller its own reference (an extra `passRetained` would leak).
             guard let value = self.items[account] else {
                 result?.pointee = nil
                 return errSecItemNotFound
             }
-            result?.pointee = Unmanaged.passRetained(value as CFData).takeUnretainedValue()
+            result?.pointee = value as CFData
             return errSecSuccess
         },
         update: { [unowned self] query, attributes in
