@@ -30,8 +30,12 @@ enum SearchProviderKind: RawRepresentable, Codable, CaseIterable, Identifiable, 
 
     typealias RawValue = String
 
+    /// Manual on purpose: only kinds this build can create. `.unsupported` must stay
+    /// absent so pickers never offer it, and each new supported case must be added here.
     static let allCases: [SearchProviderKind] = [.mcp, .searxng, .kagiCLI]
 
+    /// Never returns nil: unknown spellings become `.unsupported` so a save cannot
+    /// destroy them. Do not use this initializer to validate raw input.
     init?(rawValue: String) {
         switch rawValue {
         case "mcp": self = .mcp
@@ -57,7 +61,20 @@ enum SearchProviderKind: RawRepresentable, Codable, CaseIterable, Identifiable, 
         case .mcp: return "MCP server"
         case .searxng: return "SearXNG"
         case .kagiCLI: return "Kagi CLI"
-        case .unsupported: return "Unsupported provider"
+        case .unsupported(let rawValue):
+            let cleaned = rawValue.unicodeScalars.map { scalar -> String in
+                if CharacterSet.controlCharacters.contains(scalar)
+                    || CharacterSet.newlines.contains(scalar) {
+                    return " "
+                }
+                return String(scalar)
+            }.joined().split(whereSeparator: \.isWhitespace).joined(separator: " ")
+            guard !cleaned.isEmpty else { return "Unsupported provider" }
+            let limit = 48
+            let visible = cleaned.count > limit
+                ? String(cleaned.prefix(limit)) + "…"
+                : cleaned
+            return "\(visible) (unsupported)"
         }
     }
 
@@ -192,8 +209,7 @@ struct SearchProfile: Codable, Equatable, Identifiable {
         // mistaken for MCP. That is what a settings file written by a build with more
         // backends looks like, and one unknown entry must not cost the user every other
         // provider or send its key through the wrong protocol.
-        let rawKind = (try? container.decodeIfPresent(String.self, forKey: .kind)) ?? nil
-        kind = rawKind.flatMap { SearchProviderKind(rawValue: $0) } ?? .mcp
+        kind = (try? container.decodeIfPresent(SearchProviderKind.self, forKey: .kind)) ?? .mcp
         endpoint = try container.decodeIfPresent(String.self, forKey: .endpoint) ?? ""
         keyAccount = try container.decodeIfPresent(String.self, forKey: .keyAccount)
             ?? SecretAccount.derived(from: .searchAPIKey, for: id).rawValue

@@ -362,7 +362,11 @@ final class ProviderSettingsTests: XCTestCase {
         XCTAssertEqual(decoded.count, 1)
         XCTAssertEqual(profile.kind, .unsupported("quantum"))
         XCTAssertEqual(profile.kind.rawValue, "quantum")
+        XCTAssertEqual(profile.kind.label, "quantum (unsupported)")
         XCTAssertEqual(profile.name, "Future")
+        XCTAssertEqual(SearchProviderKind.unsupported("future\n\u{202E}kind").label,
+                       "future kind (unsupported)",
+                       "a stored spelling cannot add rows or reorder the settings UI")
 
         let reencoded = try XCTUnwrap(ProviderSettings.encodeSearchProfiles(decoded))
         XCTAssertTrue(reencoded.contains(#""kind":"quantum""#), reencoded)
@@ -381,8 +385,9 @@ final class ProviderSettingsTests: XCTestCase {
                                         requiresSearch: false).isEmpty)
 
         let commandRunner = StubCommandRunner { _ in .unrouted }
+        let testCredential = UUID().uuidString
         XCTAssertThrowsError(try SearchBackendFactory.make(
-            profile: profile, apiKey: "must-not-be-sent",
+            profile: profile, apiKey: testCredential,
             trace: ResearchTrace(sink: SilentLog()), commandRunner: commandRunner))
         XCTAssertTrue(commandRunner.resolved.isEmpty)
 
