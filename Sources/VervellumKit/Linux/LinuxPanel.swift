@@ -246,7 +246,7 @@ final class LinuxPanel {
             // should not have said otherwise on the way in.
             return self.receive(dropped)
         }
-        GTK.observeKeys(composer) { [weak self] keyval, modifiers in
+        GTK.observeKeys(composer) { [weak self] keyval, modifiers, pasteShortcutMatches in
             guard let self else { return false }
             if GTK.isEscape(keyval) {
                 // Escape clears a draft first and only then closes, so a half-typed
@@ -273,7 +273,9 @@ final class LinuxPanel {
             // a screenshot of it" — a paste that silently does something else is worse than
             // one that cannot reach a flavour. Dragging the image instead is unaffected: a
             // drop offers files and textures alone.
-            if GTK.isPaste(keyval, modifiers) {
+            if GTK.shouldInterceptPaste(shortcutMatches: pasteShortcutMatches,
+                                        controlPressed: GTK.hasControl(modifiers),
+                                        shiftPressed: GTK.hasShift(modifiers)) {
                 return GTK.readClipboard(self.composer) { [weak self] dropped in
                     guard let self else { return }
                     guard let dropped else {
