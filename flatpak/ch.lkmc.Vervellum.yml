@@ -10,7 +10,8 @@ finish-args:
   - --share=ipc
   - --socket=wayland
   - --socket=fallback-x11
-  # Providers are HTTP services (SearXNG, Kagi CLI backends).
+  # Model, MCP, reader and SearXNG providers are HTTP services. The Kagi CLI
+  # backend is unavailable in this sandbox; no host executable access is granted.
   - --share=network
   # API tokens go through secret-tool → Secret Service. secret-tool itself
   # ships in the runtime (part of libsecret); CI asserts it is present.
