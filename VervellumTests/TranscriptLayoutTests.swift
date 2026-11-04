@@ -30,7 +30,7 @@ final class TranscriptLayoutTests: XCTestCase {
         // PanelRootView's onAppear asks its own KeychainStore about the selected
         // providers. With neither selected, both lookups return before reading a key.
         // The injected runner needs no provider, so this is a complete isolated panel.
-        preferences.providerSettings = ProviderSettings(modelProfiles: [], searchProfiles: [])
+        preferences.core.providerSettings = ProviderSettings(modelProfiles: [], searchProfiles: [])
         let store = ThreadStore(fileURL: directory.appendingPathComponent("threads.json"))
         let started = expectation(description: "Follow-up runner started")
         let runner = ManualRunner(onStart: started.fulfill)

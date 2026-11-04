@@ -182,9 +182,9 @@ final class CorePreferencesTests: XCTestCase {
         XCTAssertEqual(reloaded.modelName, "b")
     }
 
-    /// The single-provider keys are mirrored so the Linux settings file stays readable
-    /// and a downgraded build still finds an endpoint — and it must be the *selected*
-    /// provider's, not the first in a list that build cannot see.
+    /// With no fixed-account owner, the scalar keys mirror the selected provider so the
+    /// Linux settings file stays readable and a downgraded keyless/local setup keeps its
+    /// selection. Fixed-account ownership is covered separately below.
     func testTheSelectedProviderIsMirroredIntoTheSingleProviderKeys() {
         let store = MemorySettingsStore()
         let settings = CorePreferences(store: store)
@@ -195,6 +195,26 @@ final class CorePreferencesTests: XCTestCase {
 
         XCTAssertEqual(store.string(for: "modelEndpoint"), "https://b.example.com/v1")
         XCTAssertEqual(store.string(for: "modelName"), "b")
+    }
+
+    /// A pre-profiles build reads the scalar endpoint together with the fixed Keychain
+    /// account. Selecting a newer, derived-account profile must not make that old build
+    /// pair the first provider's key with the selected provider's endpoint.
+    func testTheLegacyModelMirrorFollowsTheFixedAccountOwner() {
+        let store = MemorySettingsStore()
+        let settings = CorePreferences(store: store)
+        let first = ModelProfile(
+            id: UUID(), name: "Legacy", endpoint: "https://legacy.example.com/v1",
+            model: "legacy", keyAccount: SecretAccount.modelAPIKey.rawValue)
+        let second = ModelProfile.new(
+            name: "Selected", endpoint: "https://selected.example.com/v1", model: "selected")
+
+        settings.providerSettings = ProviderSettings(
+            modelProfiles: [first, second], selectedModelID: second.id)
+
+        XCTAssertEqual(store.string(for: "modelEndpoint"), "https://legacy.example.com/v1")
+        XCTAssertEqual(store.string(for: "modelName"), "legacy")
+        XCTAssertEqual(CorePreferences(store: store).providerSettings.selectedModel?.id, second.id)
     }
 
     /// Losing the extra profiles is bad; refusing to launch over them is worse.
@@ -259,6 +279,28 @@ final class CorePreferencesTests: XCTestCase {
         XCTAssertEqual(reloaded.searchProfiles.map(\.name), ["z.ai", "Mine"])
         XCTAssertEqual(reloaded.selectedSearch?.id, mine.id)
         XCTAssertEqual(reloaded.searchKind, .searxng)
+    }
+
+    func testTheLegacySearchMirrorFollowsTheFixedAccountOwner() {
+        let store = MemorySettingsStore()
+        let settings = CorePreferences(store: store)
+        let legacy = SearchProfile(
+            id: UUID(), name: "Legacy", kind: .mcp,
+            endpoint: "https://legacy.example.com/mcp",
+            keyAccount: SecretAccount.searchAPIKey.rawValue)
+        let selected = SearchProfile.new(
+            name: "Selected", kind: .searxng, endpoint: "https://selected.example.com")
+        var value = ProviderSettings(modelEndpoint: "https://model.example.com/v1",
+                                     modelName: "model")
+        value.searchProfiles = [legacy, selected]
+        value.selectedSearchID = selected.id
+
+        settings.providerSettings = value
+
+        XCTAssertEqual(store.string(for: "searchEndpoint"), "https://legacy.example.com/mcp")
+        XCTAssertEqual(store.string(for: "searchProvider"), "mcp")
+        XCTAssertEqual(CorePreferences(store: store).providerSettings.selectedSearch?.id,
+                       selected.id)
     }
 
     /// The file store must survive a number that round-tripped as an integer, which is

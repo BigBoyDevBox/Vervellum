@@ -107,9 +107,11 @@ not the mechanism; the absence of expressible syntax is.
   `~/Library/Application Support/Vervellum/threads.json` (atomic, debounced, one
   `.bak`, `0600`); settings in `UserDefaults`; **API keys only in the Keychain**. The
   model providers are a JSON list under one settings key, with the pre-profiles
-  `modelEndpoint` / `modelName` kept as a mirror of the selected one — that mirror is
-  what the Linux settings file documents and what a downgraded build reads, so keep
-  writing it.
+  `modelEndpoint` / `modelName` kept as a downgrade mirror. While a profile owns the
+  fixed legacy account, the scalar keys mirror that owner so an old build cannot pair
+  its key with another provider's endpoint; once the fixed slot is unowned and deleted,
+  they mirror the selection. The Linux settings file documents those scalar keys, so
+  keep writing them.
 - **Min target:** macOS 14 (Liquid Glass gated `@available(macOS 26, *)` with an
   `NSVisualEffectView` fallback). **Build with Xcode 26** for Liquid Glass.
 - **App type:** menu-bar agent (`LSUIElement = true`, `.accessory` policy, no Dock
@@ -339,7 +341,9 @@ dependency tree would end that.
   provider, and every provider added since gets its own through
   `SecretAccount.derived(from:for:)`. Never read a fixed account for "the model key"
   — ask `SecretStore.modelKey(for:)`, or one provider's credential is sent to
-  another.
+  another. A downgraded build does read the fixed account, so its scalar endpoint
+  mirror follows that account's owner until the owner is removed and the slot is
+  deleted; mirroring a different selection there would recreate the same disclosure.
 - **Show on every Space / over full-screen:** keep `collectionBehavior` =
   `[.canJoinAllSpaces, .canJoinAllApplications, .fullScreenAuxiliary, .transient]` and
   `hidesOnDeactivate = false` on the panel. Level is *not* the lever — see PLAN.md §2 —

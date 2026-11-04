@@ -19,7 +19,7 @@ struct ProvidersView: View {
 
     /// Typed as the shared protocol so this pane is one rename away from being
     /// reusable, and so it can say which backend is in use rather than assuming.
-    private let keychain: SecretStore = KeychainStore()
+    private let keychain: SecretStore
 
     @State private var profiles: [ModelProfile] = []
     @State private var selectedID: UUID?
@@ -27,14 +27,15 @@ struct ProvidersView: View {
     @State private var keyEntries: [UUID: String] = [:]
     /// Providers that already have a key in the secret store.
     @State private var storedKeys: Set<UUID> = []
-    /// Accounts belonging to providers removed in this session. Deleted on Save, not on
-    /// the click — see the type's documentation.
-    @State private var accountsToDelete: [SecretAccount] = []
+    /// Explicit clears are pending form edits. The old value stays available until Save
+    /// can rotate the profile and its destination together; closing Settings cancels it.
+    @State private var modelKeysToClear: Set<UUID> = []
 
     @State private var searchProfiles: [SearchProfile] = []
     @State private var selectedSearchID: UUID?
     @State private var searchKeyEntries: [UUID: String] = [:]
     @State private var storedSearchKeys: Set<UUID> = []
+    @State private var searchKeysToClear: Set<UUID> = []
 
     @State private var modelFallback = ProviderSettings.defaultModelFallback
 
@@ -42,6 +43,7 @@ struct ProvidersView: View {
     @State private var readerEndpoint = ""
     @State private var readerKeyEntry = ""
     @State private var hasReaderKey = false
+    @State private var readerKeyToClear = false
 
     /// What each provider's model list is doing. Keyed by profile id because a card is
     /// fetched on its own — one provider being down must not blank another's list.
@@ -69,6 +71,11 @@ struct ProvidersView: View {
         case loaded([String])
         /// The reason, already user-facing. The field stays editable underneath it.
         case failed(String)
+    }
+
+    init(preferences: Preferences, keychain: SecretStore = KeychainStore()) {
+        self.preferences = preferences
+        self.keychain = keychain
     }
 
     var body: some View {
@@ -172,14 +179,20 @@ struct ProvidersView: View {
                             .textFieldStyle(.roundedBorder)
                     }
                     keyRow(title: "Reader key",
-                           entry: $readerKeyEntry,
-                           hasStored: hasReaderKey,
+                           entry: Binding(get: { readerKeyEntry },
+                                          set: {
+                                              readerKeyEntry = $0
+                                              if !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                                                  readerKeyToClear = false
+                                              }
+                                          }),
+                           hasStored: hasReaderKey && !readerKeyToClear,
                            note: "Required for a hosted reader. z.ai's Web Reader takes the same "
                                + "Coding Plan key as its web search, stored separately.") {
-                        try? keychain.delete(.readerAPIKey)
-                        hasReaderKey = keychain.hasValue(for: .readerAPIKey)
+                        readerKeyEntry = ""
+                        readerKeyToClear = true
                         statusIsProblem = false
-                        status = "Key removed."
+                        status = "Reader key will be removed when you Save."
                     }
                 }
             }
@@ -240,14 +253,21 @@ struct ProvidersView: View {
                     + "Attached text files are sent either way.")
             keyRow(title: "API key",
                    entry: Binding(get: { keyEntries[id] ?? "" },
-                                  set: { keyEntries[id] = $0 }),
-                   hasStored: storedKeys.contains(id),
+                                  set: {
+                                      keyEntries[id] = $0
+                                      if !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                                          modelKeysToClear.remove(id)
+                                      }
+                                  }),
+                   hasStored: storedKeys.contains(id) && !modelKeysToClear.contains(id),
                    note: "Optional — a local model server usually needs none.",
                    showsNote: false) {
-                try? keychain.delete(profile.wrappedValue.secretAccount)
-                storedKeys.remove(id)
+                keyEntries[id] = ""
+                modelKeysToClear.insert(id)
+                modelFetches.removeValue(forKey: id)?.cancel()
+                catalogues[id] = nil
                 statusIsProblem = false
-                status = "Key removed."
+                status = "Key will be removed when you Save."
             }
         }
         .padding(10)
@@ -399,15 +419,17 @@ struct ProvidersView: View {
         guard !Task.isCancelled else { return }
         catalogues[profile.id] = .loading
         let typed = (keyEntries[profile.id] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        let key = typed.isEmpty ? keychain.value(for: profile.secretAccount) : typed
+        let cleared = modelKeysToClear.contains(profile.id)
+        let key = cleared ? nil
+            : (typed.isEmpty ? keychain.value(for: profile.secretAccount) : typed)
         let client = ModelCatalogClient(url: url, apiKey: key,
                                         trace: ResearchTrace(sink: SilentLog()))
         do {
             let models = try await client.fetch()
-            guard !Task.isCancelled, stillCurrent(profile, entry: typed) else { return }
+            guard !Task.isCancelled, stillCurrent(profile, entry: typed, cleared: cleared) else { return }
             catalogues[profile.id] = .loaded(models)
         } catch {
-            guard !Task.isCancelled, stillCurrent(profile, entry: typed) else { return }
+            guard !Task.isCancelled, stillCurrent(profile, entry: typed, cleared: cleared) else { return }
             // The provider's own text is never shown — only a `ResearchError` Vervellum
             // wrote, and a bare type name for anything else.
             catalogues[profile.id] = .failed(
@@ -431,11 +453,12 @@ struct ProvidersView: View {
     /// straight into `profiles` as the user types. A draft binding that only landed on
     /// Save would leave the old endpoint here while a new one was on screen, and the
     /// stale result this guard exists to reject would pass it.
-    private func stillCurrent(_ profile: ModelProfile, entry: String) -> Bool {
+    private func stillCurrent(_ profile: ModelProfile, entry: String, cleared: Bool) -> Bool {
         guard profiles.first(where: { $0.id == profile.id })?.endpoint == profile.endpoint
         else { return false }
         return (keyEntries[profile.id] ?? "")
             .trimmingCharacters(in: .whitespacesAndNewlines) == entry
+            && modelKeysToClear.contains(profile.id) == cleared
     }
 
     /// One search provider's fields. The protocol picker comes first, because it decides
@@ -470,13 +493,18 @@ struct ProvidersView: View {
             }
             keyRow(title: kind.keyLabel,
                    entry: Binding(get: { searchKeyEntries[id] ?? "" },
-                                  set: { searchKeyEntries[id] = $0 }),
-                   hasStored: storedSearchKeys.contains(id),
+                                  set: {
+                                      searchKeyEntries[id] = $0
+                                      if !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                                          searchKeysToClear.remove(id)
+                                      }
+                                  }),
+                   hasStored: storedSearchKeys.contains(id) && !searchKeysToClear.contains(id),
                    note: kind.keyNote) {
-                try? keychain.delete(profile.wrappedValue.secretAccount)
-                storedSearchKeys.remove(id)
+                searchKeyEntries[id] = ""
+                searchKeysToClear.insert(id)
                 statusIsProblem = false
-                status = "Key removed."
+                status = "Key will be removed when you Save."
             }
         }
         .padding(10)
@@ -505,7 +533,7 @@ struct ProvidersView: View {
                         .textFieldStyle(.roundedBorder)
                     if hasStored {
                         Button("Clear", action: onClear)
-                            .help("Remove the stored key from the Keychain")
+                            .help("Remove the stored key from the Keychain when you Save")
                     }
                 }
                 if showsNote {
@@ -535,7 +563,8 @@ struct ProvidersView: View {
         selectedSearchID = settings.selectedSearch?.id ?? searchProfiles.first?.id
         keyEntries = [:]
         searchKeyEntries = [:]
-        accountsToDelete = []
+        modelKeysToClear = []
+        searchKeysToClear = []
         // Not carried across an open: the endpoints may have changed elsewhere, and a
         // list is one click away. A fetch still running is cancelled with them — which
         // reaches the ones this view still has a handle on, meaning a pane switch inside
@@ -554,6 +583,7 @@ struct ProvidersView: View {
         pageReading = settings.pageReading
         readerEndpoint = settings.readerEndpoint
         readerKeyEntry = ""
+        readerKeyToClear = false
         hasReaderKey = keychain.hasValue(for: .readerAPIKey)
     }
 
@@ -574,11 +604,9 @@ struct ProvidersView: View {
 
     private func remove(_ id: UUID) {
         guard let index = profiles.firstIndex(where: { $0.id == id }), profiles.count > 1 else { return }
-        // Recorded, not deleted: Save commits the removal, so closing Settings without
-        // saving leaves the provider and its key exactly as they were.
-        accountsToDelete.append(profiles[index].secretAccount)
         profiles.remove(at: index)
         keyEntries[id] = nil
+        modelKeysToClear.remove(id)
         catalogues[id] = nil
         modelFetches.removeValue(forKey: id)?.cancel()
         storedKeys.remove(id)
@@ -588,66 +616,77 @@ struct ProvidersView: View {
     private func removeSearch(_ id: UUID) {
         guard let index = searchProfiles.firstIndex(where: { $0.id == id }),
               searchProfiles.count > 1 else { return }
-        accountsToDelete.append(searchProfiles[index].secretAccount)
         searchProfiles.remove(at: index)
         searchKeyEntries[id] = nil
+        searchKeysToClear.remove(id)
         storedSearchKeys.remove(id)
         if selectedSearchID == id { selectedSearchID = searchProfiles.first?.id }
     }
 
     private func save() {
-        var settings = preferences.providerSettings
-        settings.modelProfiles = profiles
-        settings.selectedModelID = selectedID ?? profiles.first?.id
-        settings.searchProfiles = searchProfiles
-        settings.selectedSearchID = selectedSearchID ?? searchProfiles.first?.id
-        settings.modelFallback = modelFallback
-        settings.pageReading = pageReading
-        settings.readerEndpoint = readerEndpoint
-        preferences.providerSettings = settings
+        let original = preferences.providerSettings
+        var edited = original
+        edited.modelProfiles = profiles
+        edited.selectedModelID = selectedID ?? profiles.first?.id
+        edited.searchProfiles = searchProfiles
+        edited.selectedSearchID = selectedSearchID ?? searchProfiles.first?.id
+        edited.modelFallback = modelFallback
+        edited.pageReading = pageReading
+        edited.readerEndpoint = readerEndpoint
 
+        var modelEdits: [UUID: ProviderCredentialCommit.CredentialEdit] = [:]
+        for profile in profiles {
+            modelEdits[profile.id] = credentialEdit(keyEntries[profile.id],
+                                                    cleared: modelKeysToClear.contains(profile.id))
+        }
+        var searchEdits: [UUID: ProviderCredentialCommit.CredentialEdit] = [:]
+        for profile in searchProfiles {
+            searchEdits[profile.id] = credentialEdit(
+                searchKeyEntries[profile.id], cleared: searchKeysToClear.contains(profile.id))
+        }
+        let edits = ProviderCredentialCommit.Edits(
+            model: modelEdits,
+            search: searchEdits,
+            reader: credentialEdit(readerKeyEntry, cleared: readerKeyToClear))
+
+        let result: ProviderCredentialCommit.Result
         do {
-            for account in accountsToDelete { try keychain.delete(account) }
-            accountsToDelete = []
-            // Blank means "leave the stored key alone" — see the type's documentation.
-            // The check trims first, because `KeychainStore.set` trims too and *deletes*
-            // on an empty result: a field holding one stray space from a sloppy paste
-            // would otherwise pass `!isEmpty` and wipe a working key, reporting "Saved."
-            for profile in profiles {
-                let typed = keyEntries[profile.id] ?? ""
-                guard !typed.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { continue }
-                try keychain.set(typed, for: profile.secretAccount)
-            }
-            for profile in searchProfiles {
-                let typed = searchKeyEntries[profile.id] ?? ""
-                guard !typed.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { continue }
-                try keychain.set(typed, for: profile.secretAccount)
-            }
-            if !readerKeyEntry.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                try keychain.set(readerKeyEntry, for: .readerAPIKey)
-            }
-            keyEntries = [:]
-            searchKeyEntries = [:]
-            readerKeyEntry = ""
+            result = try preferences.commitProviderSettings(
+                edited,
+                edits: edits,
+                secrets: keychain)
         } catch {
+            // A fixed-account replacement can fail after settings commit: its old value
+            // was already deleted, so reloading is safe and keeps the form honest about
+            // what actually persisted. Every other failure happened before commit and
+            // leaves the edits in place for retry.
+            if let commitError = error as? ProviderCredentialCommit.CommitError,
+               commitError.settingsWereCommitted {
+                load()
+            } else {
+                // A transaction can clear one fixed-account barrier before a later
+                // Keychain operation refuses. Keep every unsaved field for retry, but
+                // refresh the facts behind "Stored" and Clear so the form never claims
+                // a key that the failed attempt already removed.
+                refreshStoredKeyFlags()
+            }
             status = error.localizedDescription
             statusIsProblem = true
             return
         }
 
-        // Read the secret store directly rather than through the `@State` flags just
-        // written: a SwiftUI state write is a store for the *next* update, and reading it
-        // back on the same call stack is not a documented guarantee. Getting it wrong
-        // would report "The web-search key is missing." on the very save that supplied it.
-        storedKeys = Set(profiles.filter { keychain.hasValue(for: $0.secretAccount) }.map(\.id))
-        storedSearchKeys = Set(searchProfiles
-            .filter { keychain.hasValue(for: $0.secretAccount) }.map(\.id))
-        // Re-read: `normalized()` may have filled in the default MCP endpoint, and the
-        // form should show what was stored rather than what was typed.
-        hasReaderKey = keychain.hasValue(for: .readerAPIKey)
-        let saved = preferences.providerSettings
-        searchProfiles = saved.searchProfiles
-        readerEndpoint = saved.readerEndpoint
+        // Re-read both halves. The transaction may have rotated account pointers, and
+        // normalisation may have supplied a default endpoint; neither belongs only in
+        // storage while the form keeps showing its pre-commit draft.
+        load()
+        let saved = result.settings
+
+        if !result.cleanupFailures.isEmpty {
+            statusIsProblem = true
+            status = "Saved, but \(result.cleanupFailures.count) superseded Keychain "
+                + "item\(result.cleanupFailures.count == 1 ? "" : "s") could not be removed."
+            return
+        }
 
         // Report configuration problems now rather than at the first question, but do
         // not try to reach the providers: a connectivity check here would cost a
@@ -658,5 +697,22 @@ struct ProvidersView: View {
                                       hasSearchKey: keychain.hasSearchKey(for: saved))
         statusIsProblem = !problems.isEmpty
         status = problems.isEmpty ? "Saved." : problems.joined(separator: " ")
+    }
+
+    /// Turns the password-field convention into the transaction's explicit three-way
+    /// state. Whitespace is still blank/unchanged; only the Clear button requests a
+    /// deletion, so an accidental space cannot erase a working key.
+    private func credentialEdit(_ entry: String?, cleared: Bool)
+        -> ProviderCredentialCommit.CredentialEdit {
+        if cleared { return .clear }
+        let trimmed = (entry ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? .unchanged : .replace(trimmed)
+    }
+
+    private func refreshStoredKeyFlags() {
+        storedKeys = Set(profiles.filter { keychain.hasValue(for: $0.secretAccount) }.map(\.id))
+        storedSearchKeys = Set(searchProfiles
+            .filter { keychain.hasValue(for: $0.secretAccount) }.map(\.id))
+        hasReaderKey = keychain.hasValue(for: .readerAPIKey)
     }
 }

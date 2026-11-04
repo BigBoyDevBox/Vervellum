@@ -358,6 +358,28 @@ must be HTTPS (with a loopback exception for a local model server, which has no
 certificate) and may not carry userinfo, because a `https://key@host/` URL leaks the
 credential into every log line.
 
+Changing an endpoint and its key is one disclosure-safe transaction. Credentials on
+derived model and search accounts are first written under fresh, unreferenced account
+names; settings point at those names only after every staged write succeeds, and
+superseded accounts are removed afterward. A destination changed without a replacement
+gets a fresh empty account rather than inheriting the previous destination's key. The
+load-bearing first model/search accounts and the reader's older fixed account cannot
+switch pointers without breaking downgrade compatibility, so their old values are
+deleted before the endpoint is saved and replacements are written only after the
+settings backend confirms a durability barrier. While a profile owns one of those
+fixed accounts, its destination — rather than a selected derived-account profile — is
+what the scalar downgrade keys mirror, so an old build reads a matching endpoint and
+credential. Once the owner is removed, the fixed key is deleted before the scalar
+mirror falls back to the selected profile; every later selection or provider save
+repeats that deletion barrier, repairing an orphan left by an older build that saved
+settings before Keychain cleanup failed. Recognised model, search and reader account
+names cannot be assigned across provider kinds. Fresh account names are journalled
+durably before their first Keychain write, so a crash cannot make an orphan
+undiscoverable.
+Failed deletion of an unreferenced account is kept in a non-secret preferences journal
+and retried on the next save. A failure can therefore leave a provider without a key or
+an old key unreferenced, never bind one provider's key to another provider's endpoint.
+
 ### 4.3 The user's own secrets
 
 The selection shortcut is the one path where Vervellum can transmit something the user
