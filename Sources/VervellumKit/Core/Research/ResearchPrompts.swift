@@ -382,8 +382,9 @@ enum ResearchPrompts {
         and treat an undated or clearly older source as weaker. Do not present an old \
         snapshot as the present.
 
-        CITATION RULE — absolute. You may not write a URL, a bare domain, or a \
-        markdown link anywhere in your answer. Refer to evidence only by its number in \
+        CITATION RULE — absolute. You may not write a URL or other URI, a \
+        scheme-relative address, a bare domain, or a markdown link or autolink anywhere \
+        in your answer. Refer to evidence only by its number in \
         square brackets: [1], or [2, 5] for several. Every statement that rests on a \
         source must carry that source's number. Any statement you make without a \
         source must be visibly framed as inference, background, or general knowledge — \
@@ -463,6 +464,11 @@ enum ResearchPrompts {
         or on sources that predate a change the question could plausibly turn on, is \
         "insufficient", not "supported" — say which date the evidence reaches.
 
+        CITATION RULE — absolute for every string you return. You may not write a URL \
+        or other URI, a scheme-relative address, a bare domain, or a markdown link or \
+        autolink anywhere in the assessment. Refer to evidence only by source numbers \
+        in the "sources" arrays.
+
         Return {"findings": [{"claim": "...", "verdict": "...", "reasoning": "...", \
         "sources": [1, 2]}], "limitations": "...", "followups": ["..."]}
         - "claim": the claim in your own words, one sentence.
@@ -517,7 +523,8 @@ enum ResearchPrompts {
         evidence does support it — leave that sentence exactly as it is.
 
         CITATION RULE — absolute, exactly as it was for the answer. You may not write a \
-        URL, a bare domain, or a markdown link anywhere. Refer to evidence only by its \
+        URL or other URI, a scheme-relative address, a bare domain, or a markdown link \
+        or autolink anywhere. Refer to evidence only by its \
         number in square brackets: [1], or [2, 5] for several. Every statement that rests \
         on a source must carry that source's number, and only numbers that appear in the \
         evidence supplied here. A bracketed number inside code, fenced or inline, is code \
@@ -546,8 +553,10 @@ enum ResearchPrompts {
         run for this turn, so you have no evidence to cite and must not pretend \
         otherwise.
 
-        Write in the language of the question. Do not write URLs or citation markers — \
-        there is nothing to cite. Instead, be \
+        Write in the language of the question. Do not write a URL or other URI, a \
+        scheme-relative address, a bare domain, a markdown link or autolink, or a \
+        citation marker — there is nothing \
+        to cite. Instead, be \
         explicit about the basis and the age of what you know: name where your \
         confidence is high, where it is low, and what would need checking against a \
         live source. If the question turns on a fact that changes over time, say that \

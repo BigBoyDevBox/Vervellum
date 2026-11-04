@@ -301,7 +301,7 @@ final class ResearchRunner: ResearchRunning {
             // A partial answer is kept on purpose — a half-written answer with its
             // sources is still worth showing — and it deserves the same scrutiny as a
             // whole one. The validation after a successful stream is never reached on
-            // this path, and a literal URL the model wrote in paragraph two must carry
+            // this path, and a direct link the model wrote in paragraph two must carry
             // its warning even if the user stopped in paragraph three.
             update { turn in
                 if !turn.answer.isEmpty {
@@ -2025,18 +2025,15 @@ final class ResearchRunner: ResearchRunning {
         // the reader's trust in these numbers rests on. So it is checked before it is
         // accepted, and dropped whole rather than swapped in and annotated.
         let validation = CitationValidator.validate(answer: corrected, sourceCount: sources.count)
-        // Un-citing is the quiet half of the same failure. A reviser that hedges a claim
-        // by dropping its `[n]` rather than weakening its words hands back prose that
-        // reads as confident and rests on nothing — and every check above would pass it,
-        // because there is no bad number to find. Measured against the draft, so an
-        // answer that never cited anything is not held to a standard it never met.
-        let draftCitedSomething = !CitationValidator
-            .validate(answer: answer, sourceCount: sources.count)
-            .citedSourceIndices.isEmpty
+        // Un-citing is the quiet half of the same failure. A revision is only requested
+        // because a cited `contradicted` or `mixed` finding survived the assessment
+        // parser, so the correction must point back to evidence even when the faulty
+        // draft did not. Otherwise an uncited draft and uncited rewrite evade a relative
+        // "did it lose citations?" check together.
         let revisionCitedSomething = !validation.citedSourceIndices.isEmpty
         guard validation.outOfRangeCitations.isEmpty,
-              validation.literalURLs.isEmpty,
-              !draftCitedSomething || revisionCitedSomething
+              validation.forbiddenLinks.isEmpty,
+              revisionCitedSomething
         else {
             // Which clause fired, because the three are different stories. Two are a
             // reviser breaking a rule it was given; the third is the un-citing guard,
@@ -2045,8 +2042,8 @@ final class ResearchRunner: ResearchRunning {
             // soft either way, so the only way to know how often that happens is to say
             // which branch it was.
             let broken = !validation.outOfRangeCitations.isEmpty ? "a source number that does not exist"
-                : !validation.literalURLs.isEmpty ? "a URL in the prose"
-                : "no citation at all, where the draft had one"
+                : !validation.forbiddenLinks.isEmpty ? "a forbidden link in the prose"
+                : "no citation at all"
             trace.warn("Revision discarded: \(broken)")
             update { $0.addNotice(.revisionUnavailable) }
             return

@@ -610,7 +610,8 @@ final class TurnNoticeDecodingTests: XCTestCase {
     }
 
     func testKnownNoticesRoundTrip() throws {
-        let original: [TurnNotice] = [.noEvidence, .assessmentUnavailable, .unreadableVerdictDropped]
+        let original: [TurnNotice] = [.noEvidence, .assessmentUnavailable,
+                                      .unreadableVerdictDropped, .assessmentLinkDropped]
         let data = try JSONEncoder().encode(original)
         XCTAssertEqual(try JSONDecoder().decode([TurnNotice].self, from: data), original)
     }

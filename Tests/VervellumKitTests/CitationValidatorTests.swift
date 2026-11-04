@@ -80,12 +80,56 @@ final class CitationValidatorTests: XCTestCase {
     func testFlagsLiteralURLs() {
         let result = CitationValidator.validate(
             answer: "See https://example.com/made-up for details.", sourceCount: 2)
-        XCTAssertEqual(result.literalURLs, ["https://example.com/made-up"])
+        XCTAssertEqual(result.forbiddenLinks, ["https://example.com/made-up"])
         XCTAssertFalse(result.isClean)
     }
 
+    /// The prompt forbids every syntax in which the model could smuggle a destination,
+    /// not only the absolute HTTP spelling the source harvester happens to ingest.
+    func testFlagsSchemeRelativeMarkdownAndBareDomainLinks() {
+        for answer in [
+            "See //example.com/a for details.",
+            "See [the documentation](/private/path) for details.",
+            "See example.com/a for details.",
+            "Even `example.com/private` inside code is still a model-written link.",
+        ] {
+            let result = CitationValidator.validate(answer: answer, sourceCount: 1)
+            XCTAssertFalse(result.forbiddenLinks.isEmpty, answer)
+            XCTAssertFalse(result.isClean, answer)
+        }
+    }
+
+    /// Domain-like punctuation occurs constantly in legitimate prose and code. The
+    /// link gate must stay precise enough that filenames, versions, emails, member
+    /// access and a comment opener do not put a trust warning on an answer.
+    func testDomainScanDoesNotFlagCommonNonLinks() {
+        let answer = """
+            Version 1.2.3 uses README.md, package.json, archive.tar.gz, main.swift,
+            build.sh and Vervellum.app. Email me@example.com. Call object.property,
+            `items[i](x)`, or write // comment. An escaped \\[label](/not-a-link) is text.
+            ```swift
+            [key](value)
+            ```
+            """
+        let result = CitationValidator.validate(answer: answer, sourceCount: 0)
+        XCTAssertTrue(result.forbiddenLinks.isEmpty, "\(result.forbiddenLinks)")
+        XCTAssertTrue(result.isClean)
+    }
+
+    func testLinkScanTerminatesOnLongPunctuationHeavyText() {
+        let answer = String(repeating: "a.b-c_1/[]() ", count: 20_000) + "example.com"
+        let result = CitationValidator.validate(answer: answer, sourceCount: 0)
+        XCTAssertEqual(result.forbiddenLinks.last, "example.com")
+    }
+
+    func testAdjacentCitationsAreNotMistakenForAReferenceLink() {
+        let result = CitationValidator.validate(answer: "Both claims [1][2].", sourceCount: 2)
+        XCTAssertEqual(result.citedSourceIndices, [0, 1])
+        XCTAssertTrue(result.forbiddenLinks.isEmpty)
+    }
+
     /// A markdown link is not a citation marker, and neither is a bracketed aside.
-    func testDoesNotMatchMarkdownLinksOrProseBrackets() {
+    func testMarkdownLinksAndProseBracketsAreNotCitationMarkers() {
         let markdown = CitationValidator.validate(answer: "[docs](https://example.com)", sourceCount: 3)
         XCTAssertEqual(markdown.citedSourceIndices, [])
         let aside = CitationValidator.validate(answer: "an aside [see below] here", sourceCount: 3)

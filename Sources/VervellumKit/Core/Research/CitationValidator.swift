@@ -34,10 +34,10 @@ enum CitationValidator {
         var citedSourceIndices: [Int]
         /// Citation numbers outside `1...sourceCount` that the model invented.
         var outOfRangeCitations: [Int]
-        /// Literal URLs the model wrote despite being told not to.
-        var literalURLs: [String]
+        /// Direct destinations the model wrote despite being told to cite by number.
+        var forbiddenLinks: [String]
 
-        var isClean: Bool { outOfRangeCitations.isEmpty && literalURLs.isEmpty }
+        var isClean: Bool { outOfRangeCitations.isEmpty && forbiddenLinks.isEmpty }
     }
 
     /// Matches `[3]`, `[3, 4]`, `[3,4 , 12]` — digits and separators only, so an
@@ -57,14 +57,16 @@ enum CitationValidator {
         var spans: [Span] = []
         var cited: Set<Int> = []
         var outOfRange: [Int] = []
+        let code = scope == .document ? codeRanges(in: answer) : inlineCodeRanges(in: answer[...])
+        let forbiddenLinks = ForbiddenLinkScanner.links(
+            in: answer, excludingMarkdownSyntaxIn: code)
 
         guard let regex = citationRegex else {
             return Result(spans: [.text(answer)], citedSourceIndices: [],
-                          outOfRangeCitations: [], literalURLs: SourceHarvester.bareURLs(in: answer))
+                          outOfRangeCitations: [], forbiddenLinks: forbiddenLinks)
         }
 
         let full = NSRange(answer.startIndex..<answer.endIndex, in: answer)
-        let code = scope == .document ? codeRanges(in: answer) : inlineCodeRanges(in: answer[...])
         var cursor = answer.startIndex
 
         for match in regex.matches(in: answer, range: full) {
@@ -106,7 +108,7 @@ enum CitationValidator {
         return Result(spans: spans,
                       citedSourceIndices: cited.sorted(),
                       outOfRangeCitations: outOfRange,
-                      literalURLs: SourceHarvester.bareURLs(in: answer))
+                      forbiddenLinks: forbiddenLinks)
     }
 
     // MARK: Code
