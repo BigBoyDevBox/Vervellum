@@ -154,10 +154,13 @@ enum SourceHarvester {
     ) -> String {
         var candidate = url
         var cursor = matchEnd
-        while candidate.filter({ $0 == "(" }).count > candidate.filter({ $0 == ")" }).count,
+        var unclosedParentheses = candidate.filter { $0 == "(" }.count
+            - candidate.filter { $0 == ")" }.count
+        while unclosedParentheses > 0,
               cursor < text.endIndex,
               text[cursor] == ")" {
             candidate += ")"
+            unclosedParentheses -= 1
             cursor = text.index(after: cursor)
         }
         return candidate
