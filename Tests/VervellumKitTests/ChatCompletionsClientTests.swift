@@ -82,6 +82,15 @@ final class ChatCompletionsClientTests: XCTestCase {
         XCTAssertNotNil(ChatCompletionsClient.decodeJSONObject(from: text)?["findings"])
     }
 
+    /// An unfinished thought in a prose preamble must not hide the complete object that
+    /// follows it. Reasoning models occasionally open a brace while describing the shape
+    /// and never close that prose fragment before emitting the actual reply.
+    func testSkipsAnUnclosedPreambleAndTakesTheLaterObject() {
+        let text = "I will return { a plan next:\n{\"reading\": \"ready\", \"searches\": []}"
+        XCTAssertEqual(ChatCompletionsClient.decodeJSONObject(from: text)?["reading"] as? String,
+                       "ready")
+    }
+
     // MARK: Request shape
 
     /// The two optional fields not every endpoint accepts, and nothing else, come and go

@@ -493,8 +493,23 @@ final class ChatCompletionsClient {
     }
 
     /// The range of the first brace-balanced run at or after `from`.
+    ///
+    /// Each opening brace gets its own attempt. A model can leave a brace open in a
+    /// prose preamble and then emit a complete JSON object; treating that first brace as
+    /// the only possible start would hide the valid reply that follows it.
     static func objectRange(in text: String, from: String.Index) -> Range<String.Index>? {
-        guard let start = text[from...].firstIndex(of: "{") else { return nil }
+        var searchStart = from
+        while let start = text[searchStart...].firstIndex(of: "{") {
+            if let range = balancedObjectRange(in: text, startingAt: start) { return range }
+            searchStart = text.index(after: start)
+        }
+        return nil
+    }
+
+    private static func balancedObjectRange(
+        in text: String,
+        startingAt start: String.Index
+    ) -> Range<String.Index>? {
         var depth = 0
         var inString = false
         var escaped = false
