@@ -175,7 +175,8 @@ For the Flatpak, edit this file instead:
 ~/.var/app/ch.lkmc.Vervellum/config/vervellum/settings.json
 ```
 
-Flatpak gives the app its own configuration home and does not read the native path.
+Flatpak gives the app its own configuration home and does not read the native path. The
+`ch.lkmc.Vervellum` directory is the application ID declared by the Flatpak manifest.
 Both files use the same JSON shape:
 
 ```json

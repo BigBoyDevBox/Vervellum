@@ -11,7 +11,8 @@ finish-args:
   - --socket=wayland
   - --socket=fallback-x11
   # Model, MCP, reader and SearXNG providers are HTTP services. The Kagi CLI
-  # backend is unavailable in this sandbox; no host executable access is granted.
+  # backend is unavailable because this sandbox grants no filesystem access to
+  # host executables or their authentication files.
   - --share=network
   # API tokens go through secret-tool → Secret Service. secret-tool itself
   # ships in the runtime (part of libsecret); CI asserts it is present.
