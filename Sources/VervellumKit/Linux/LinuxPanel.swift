@@ -414,7 +414,7 @@ final class LinuxPanel {
             newThread()
         case .showHelp:
             GTK.setText(composer, "")
-            appendNotice(ComposerCommand.helpText)
+            appendNotice(ComposerCommand.helpText(legend: .linux))
         case .openSettings:
             GTK.setText(composer, "")
             appendNotice("Settings live in `~/.config/vervellum/settings.json`. "
