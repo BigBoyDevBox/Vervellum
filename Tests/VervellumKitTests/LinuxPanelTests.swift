@@ -39,6 +39,10 @@ final class LinuxPanelTests: XCTestCase {
         var sourced = live
         sourced.sources = [Source(number: 1, url: "https://a.example/1", title: "A", snippet: "")]
         XCTAssertFalse(LinuxPanel.isAnswerGrowth(old, sourced), "a landing source rebuilds")
+
+        // A render with nothing changed (the run ending, a panel-only toggle) must not
+        // take the in-place path, which would leave the status line and button stale.
+        XCTAssertFalse(LinuxPanel.isAnswerGrowth(live, live), "an unchanged turn rebuilds")
     }
 }
 #endif

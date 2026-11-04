@@ -618,8 +618,13 @@ final class LinuxPanel {
     /// this to say yes. Anything else a snapshot carries is a different kind of
     /// change and takes the full rebuild.
     static func isAnswerGrowth(_ old: ResearchTurn, _ live: ResearchTurn) -> Bool {
+        // Strictly longer, not merely prefixed: an unchanged turn is not growth.
+        // `render()` also runs when nothing in the turns moved — the end of a run, a
+        // panel-only change — and those must take the full path, which is the one that
+        // repaints the status line and the Stop/Ask button.
         guard old.id == live.id,
               !old.answer.isEmpty,
+              live.answer != old.answer,
               live.answer.hasPrefix(old.answer)
         else { return false }
         var before = old
