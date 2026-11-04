@@ -172,10 +172,12 @@ final class ResearchSessionTests: XCTestCase {
         attachment: Attachment,
         storedData: Data,
         deliver: @escaping (@escaping () -> Void) -> Void
-    ) throws -> (session: ResearchSession, capture: DataCapture,
-                 turnID: UUID, directory: URL) {
+    ) throws -> (session: ResearchSession, capture: DataCapture, turnID: UUID) {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("vervellum-retry-\(UUID().uuidString)")
+        addTeardownBlock {
+            try? FileManager.default.removeItem(at: directory)
+        }
         let store = AttachmentStore(directory: directory)
         try store.write(storedData, for: attachment)
 
@@ -201,7 +203,7 @@ final class ResearchSessionTests: XCTestCase {
             },
             deliver: deliver,
             after: immediateAfter)
-        return (session, capture, failed.id, directory)
+        return (session, capture, failed.id)
     }
 
     // MARK: Tests
@@ -462,7 +464,6 @@ final class ResearchSessionTests: XCTestCase {
         let validHops = HopQueue()
         let restored = try makeRetrySession(attachment: valid, storedData: png,
                                             deliver: validHops.deliver)
-        defer { try? FileManager.default.removeItem(at: restored.directory) }
 
         restored.session.retry(restored.turnID)
 
@@ -493,7 +494,6 @@ final class ResearchSessionTests: XCTestCase {
             XCTAssertNil(setup.capture.value, label)
             hops.expect(2)
             hops.drain()
-            try? FileManager.default.removeItem(at: setup.directory)
         }
     }
 
