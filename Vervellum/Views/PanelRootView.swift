@@ -1170,7 +1170,10 @@ struct PanelRootView: View {
         showsHistory = false
         notice = nil
         recallIndex = nil
-        draft = ""
+        // The composer is global to the panel, not part of the archived thread. Keep
+        // its words and attachments together while the reader consults earlier work;
+        // clearing only the words silently lost a draft and left its screenshot armed
+        // for whatever question happened to be typed next.
         engine.replaceThread(with: thread)
     }
 
