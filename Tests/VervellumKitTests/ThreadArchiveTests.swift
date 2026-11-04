@@ -194,6 +194,96 @@ final class ThreadArchiveTests: XCTestCase {
         XCTAssertFalse(ThreadArchive(fileURL: fileURL, debounce: 0).libraryIsTrustworthy)
     }
 
+    /// An undecodable document is not an empty one: the first save must not replace
+    /// those bytes with the in-memory library, and the reader has to be told why nothing
+    /// persists. The flag alone was protecting sweeps; the file itself had no guard, and a
+    /// corrupt file with a valid `.bak` does recover — so this is the both-unreadable case.
+    func testAnUndecodableDocumentIsNotOverwrittenOnSave() throws {
+        try Data("{ this is not json".utf8).write(to: fileURL)
+        let archive = ThreadArchive(fileURL: fileURL, debounce: 0)
+        XCTAssertFalse(archive.libraryIsTrustworthy)
+        XCTAssertNotNil(archive.readFailure, "silence is what let the overwrite happen")
+
+        var thread = ResearchThread()
+        var turn = ResearchTurn(question: "Q")
+        turn.stage = .complete
+        turn.answer = "A"
+        thread.turns = [turn]
+        archive.save(thread)
+        archive.flush()
+
+        XCTAssertEqual(try String(contentsOf: fileURL, encoding: .utf8),
+                       "{ this is not json",
+                       "the unreadable original must survive untouched")
+    }
+
+    /// A newer-version document reports the read-only path instead, which already has its
+    /// own explanation, and it too is never overwritten.
+    func testANewerDocumentReportsReadOnlyRatherThanReadFailure() throws {
+        try Data(#"{"version": 99, "threads": []}"#.utf8).write(to: fileURL)
+        let archive = ThreadArchive(fileURL: fileURL, debounce: 0)
+        XCTAssertTrue(archive.isReadOnly)
+        XCTAssertNil(archive.readFailure,
+                      "read-only has its own message; a read failure here would be a second one")
+        var thread = ResearchThread()
+        var turn = ResearchTurn(question: "Q")
+        turn.stage = .complete
+        turn.answer = "A"
+        thread.turns = [turn]
+        archive.save(thread)
+        archive.flush()
+        XCTAssertEqual(try String(contentsOf: fileURL, encoding: .utf8),
+                       #"{"version": 99, "threads": []}"#,
+                       "a newer-version document must survive untouched too")
+    }
+
+    /// The refusal has to end with the file it was protecting. Launching with history
+    /// off erases in `init` — deletion does not need a decode, so an unreadable
+    /// document is no barrier — and once those bytes are gone the empty library is a
+    /// true picture of what is stored. Left standing, the flags would do the two
+    /// things they exist to prevent: Settings would keep warning about a file that
+    /// is gone, and turning history back on would save nothing until relaunch.
+    func testErasingAnUnreadableDocumentLiftsTheReadRefusal() throws {
+        try Data("{ this is not json".utf8).write(to: fileURL)
+        let archive = ThreadArchive(fileURL: fileURL, historyEnabled: false, debounce: 0)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: fileURL.path),
+                       "history off erases even a document it cannot read")
+        XCTAssertNil(archive.eraseFailure)
+        XCTAssertNil(archive.readFailure,
+                     "the file it named is gone; the warning must not outlive it")
+        XCTAssertTrue(archive.libraryIsTrustworthy,
+                      "an empty library beside no file is a true picture")
+
+        archive.isHistoryEnabled = true
+        archive.save(thread("after the erase"))
+        archive.flush()
+        XCTAssertEqual(ThreadArchive(fileURL: fileURL, debounce: 0).library.threads.map(\.title),
+                       ["after the erase"],
+                       "turning history back on must be able to save without a relaunch")
+    }
+
+    /// The same refusal lifted at the toggle rather than at launch: an unreadable
+    /// document under a running archive blocks every save, turning history off
+    /// deletes the file, and the state that described it has to go with it — or the
+    /// toggle back on claims to record while writing nothing.
+    func testTogglingHistoryOffAnUnreadableDocumentLiftsTheReadRefusal() throws {
+        try Data("{ this is not json".utf8).write(to: fileURL)
+        let archive = ThreadArchive(fileURL: fileURL, debounce: 0)
+        XCTAssertNotNil(archive.readFailure)
+        XCTAssertFalse(archive.libraryIsTrustworthy)
+
+        archive.isHistoryEnabled = false
+        XCTAssertFalse(FileManager.default.fileExists(atPath: fileURL.path))
+        XCTAssertNil(archive.readFailure)
+        XCTAssertTrue(archive.libraryIsTrustworthy)
+
+        archive.isHistoryEnabled = true
+        archive.save(thread("fresh start"))
+        archive.flush()
+        XCTAssertEqual(ThreadArchive(fileURL: fileURL, debounce: 0).library.threads.map(\.title),
+                       ["fresh start"])
+    }
+
     /// A newer build's document must never vouch for a sweep, and nothing in the flag's
     /// own expression says so: it falls out of `load` returning on the version stamp
     /// before it decodes anything, which leaves the library nil beside a file that

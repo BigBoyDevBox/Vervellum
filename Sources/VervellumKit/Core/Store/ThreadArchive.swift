@@ -50,7 +50,26 @@ final class ThreadArchive {
     /// flag vouching for a picture it does not have. Gating this on `historyEnabled`
     /// would undo it: the sweep is the only thing that clears attachment bytes when the
     /// app launches with history already off.
-    let libraryIsTrustworthy: Bool
+    ///
+    /// Set in `init` and afterwards only on `queue`, where `eraseEverything` marks it
+    /// true again once the unreadable document is really gone: the emptied library is
+    /// then a true picture of what is stored, which is nothing. That is the confinement
+    /// `primaryIsTrustworthy` already uses, and it is what lets a "history off, then on
+    /// again" cycle save again rather than refuse for the rest of the session.
+    private(set) var libraryIsTrustworthy: Bool
+
+    /// Why the stored document could not be read, in words fit for the interface; nil
+    /// when there was nothing to read, when it read fine, or when the document is merely
+    /// *read-only* (a newer version stamp, which `isReadOnly` already covers).
+    ///
+    /// Without this, a corrupt or unreadable file reads as an empty library, nothing
+    /// anywhere says so, and the first save silently replaces the bytes — the user's
+    /// only copy of conversations a repair could have recovered. Settings shows this
+    /// beside the erase failure, and no write is attempted while it stands.
+    ///
+    /// A warning that outlives its condition tells a lie, so `eraseEverything` clears
+    /// it beside `libraryIsTrustworthy` once the file it describes is gone.
+    private(set) var readFailure: String?
 
     /// Why the last erase left the file in place, in words fit for the interface; nil
     /// once an erase succeeds. "History off means the bytes are gone" is a promise
@@ -148,6 +167,16 @@ final class ThreadArchive {
         let onDisk = Self.load(from: fileURL, fileManager: fileManager)
         isReadOnly = onDisk.newerVersion != nil
         libraryIsTrustworthy = onDisk.library != nil || !onDisk.fileExisted
+        // A file that exists and is neither readable nor a newer version is the case
+        // `libraryIsTrustworthy == false` was built for, minus the read-only branch,
+        // which has its own explanation. Said here because the alternative is worse than
+        // silence: the archive looks empty, and the next save would overwrite the only
+        // copy with that emptiness.
+        readFailure = !isReadOnly && !libraryIsTrustworthy
+            ? "Could not read \(fileURL.lastPathComponent) in "
+                + "\(fileURL.deletingLastPathComponent().path). The file may be corrupt "
+                + "or unreadable; nothing new will be written to it until it can be read."
+            : nil
         library = historyEnabled ? (onDisk.library ?? ThreadLibrary()) : ThreadLibrary()
         primaryIsTrustworthy = onDisk.primaryDecoded
         if let newer = onDisk.newerVersion {
@@ -238,6 +267,20 @@ final class ThreadArchive {
             for url in [fileURL, backupURL] where fileManager.fileExists(atPath: url.path) {
                 do { try fileManager.removeItem(at: url) } catch { failure = error }
             }
+            if failure == nil {
+                // The document a read failure described no longer exists, so the
+                // refusal it caused has to end with it. Every caller empties the
+                // library before this runs, so it is again a true picture of what is
+                // stored — nothing — and the next save may proceed. Left standing,
+                // `readFailure` would keep reporting a file that is gone and
+                // `libraryIsTrustworthy` would keep refusing every write, which is
+                // how toggling history off and back on used to persist nothing until
+                // relaunch. Mutated here, on `queue`, beside `primaryIsTrustworthy`:
+                // `writeNow` reads the flag on this same queue, so confining the
+                // write to it is what keeps the flag race-free.
+                readFailure = nil
+                libraryIsTrustworthy = true
+            }
         }
         // Reported, not swallowed. "History off means the bytes are gone" is a promise
         // the interface makes; if the file is still there the user has to be told.
@@ -278,7 +321,13 @@ final class ThreadArchive {
     private var backupURL: URL { fileURL.appendingPathExtension("bak") }
 
     private func scheduleSave() {
-        guard isHistoryEnabled, !isReadOnly, eraseFailure == nil else { return }
+        // An unreadable document is not an empty one. Writing the in-memory library over
+        // it would destroy the bytes a repaired permission or a backup tool could still
+        // recover, and the reader was never told anything was wrong. Refuse, and leave
+        // `readFailure` as the reason. `eraseFailure` and `isReadOnly` are separate
+        // blockers for separate situations.
+        guard isHistoryEnabled, !isReadOnly, eraseFailure == nil,
+              libraryIsTrustworthy else { return }
         var document = library
         document.version = ThreadLibrary.currentVersion
         let snapshot = document
@@ -301,7 +350,9 @@ final class ThreadArchive {
     }
 
     private func writeNow(_ snapshot: ThreadLibrary) {
-        guard !isReadOnly else { return }
+        // Belt and braces around `scheduleSave`'s gate: `flush()` reaches `writePending`
+        // directly, so the same refusal belongs at the one place every write passes.
+        guard !isReadOnly, libraryIsTrustworthy else { return }
         do {
             let encoder = JSONEncoder()
             encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
