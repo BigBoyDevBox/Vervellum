@@ -201,6 +201,9 @@ enum AgentStepParser {
 /// * A cited source number **must** exist. An out-of-range number is a fabricated
 ///   citation; it is stripped, and if that empties a verdict's citations the verdict
 ///   goes with it.
+/// * Assessment prose may not express a destination. Findings containing a direct link
+///   are dropped; linked limitations and follow-ups are withheld. The numeric source
+///   list remains the only way model output can point the reader elsewhere.
 enum AssessmentParser {
 
     struct Assessment: Equatable {
@@ -243,6 +246,15 @@ enum AssessmentParser {
             let reasoning = (entry["reasoning"] as? String)?
                 .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
 
+            // A finding is one displayed unit. Rewriting just the linked field would
+            // turn model prose into Vervellum prose, while keeping it would reopen the
+            // direct-link channel the answer validator closes. Drop the whole unit and
+            // keep scanning so a bad entry does not consume one of the eight slots.
+            if containsForbiddenLink(claim) || containsForbiddenLink(reasoning) {
+                notices.insert(.assessmentLinkDropped)
+                continue
+            }
+
             // Malformed references must not be reinterpreted as different sources.
             let claimed = entry["sources"] as? [Any] ?? []
             let valid = claimed.compactMap(sourceNumber).filter { $0 >= 1 && $0 <= sourceCount }
@@ -264,17 +276,36 @@ enum AssessmentParser {
                                     sourceNumbers: Array(Set(valid)).sorted()))
         }
 
-        let limitations = (object["limitations"] as? String)?
+        var limitations = (object["limitations"] as? String)?
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        let followups = (object["followups"] as? [Any] ?? [])
-            .compactMap { ($0 as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
-            .prefix(maxFollowups)
+        if containsForbiddenLink(limitations) {
+            limitations = ""
+            notices.insert(.assessmentLinkDropped)
+        }
+
+        var followups: [String] = []
+        for value in object["followups"] as? [Any] ?? [] {
+            if followups.count >= maxFollowups { break }
+            guard let text = (value as? String)?
+                .trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty
+            else { continue }
+            if containsForbiddenLink(text) {
+                notices.insert(.assessmentLinkDropped)
+                continue
+            }
+            followups.append(text)
+        }
 
         return Assessment(findings: findings,
                           limitations: limitations,
-                          followups: Array(followups),
+                          followups: followups,
                           notices: notices.sorted { $0.rawValue < $1.rawValue })
+    }
+
+    private static func containsForbiddenLink(_ text: String) -> Bool {
+        !ForbiddenLinkScanner.links(
+            in: text,
+            excludingMarkdownSyntaxIn: CitationValidator.codeRanges(in: text)).isEmpty
     }
 
     // MARK: Lenient fields

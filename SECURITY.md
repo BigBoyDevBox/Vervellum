@@ -75,7 +75,11 @@ Prompting is a mitigation, not a guarantee, which is why the citation rule is
 structural rather than instructional: the model is given a **numbered list** of sources
 Vervellum itself fetched and may refer to evidence only by number. Both renderers
 create actionable answer links only from those citations. Model-written links are
-inert; literal URLs are flagged. Invalid numbers remain plain text and are reported.
+inert; hierarchical and common actionable URIs, scheme-relative addresses, bare
+domains or IP literals, email addresses, and Markdown destinations or autolinks are
+flagged. Assessment fields containing those
+destinations are discarded rather than
+displayed. Invalid numbers remain plain text and are reported.
 Shared masking prevents raw placeholder characters from relocating real citations.
 These controls establish link provenance, not whether a source supports a claim.
 

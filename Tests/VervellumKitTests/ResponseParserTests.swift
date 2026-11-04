@@ -311,6 +311,32 @@ final class AssessmentParserTests: XCTestCase {
         XCTAssertEqual(assessment.followups.count, AssessmentParser.maxFollowups)
     }
 
+    /// Assessment prose is model output too. A direct destination in any displayed
+    /// field would bypass the answer's numeric-only citation boundary unless the parser
+    /// drops it before the turn is published.
+    func testDropsLinkedAssessmentFieldsAndKeepsScanningForCleanSlots() throws {
+        let linkedClaim = ["claim": "Claim at example.com", "verdict": "supported",
+                           "reasoning": "Reason", "sources": [1]] as [String: Any]
+        let linkedReasoning = ["claim": "Another claim", "verdict": "supported",
+                               "reasoning": "See [proof](/proof)",
+                               "sources": [1]] as [String: Any]
+        let clean = finding("supported", sources: [1])
+        let object: [String: Any] = [
+            "findings": [linkedClaim, linkedReasoning, clean],
+            "limitations": "Details at //example.org/limits",
+            "followups": ["example.net/first?", "Clean one?", "[bad](/two)",
+                          "Clean two?", "Clean three?", "Clean four?"],
+        ]
+
+        let assessment = try AssessmentParser.parse(object, sourceCount: 1)
+        XCTAssertEqual(assessment.findings.map(\.claim), ["A claim"])
+        XCTAssertEqual(assessment.limitations, "")
+        let expectedClean = ["Clean one?", "Clean two?", "Clean three?", "Clean four?"]
+        XCTAssertEqual(assessment.followups,
+                       Array(expectedClean.prefix(AssessmentParser.maxFollowups)))
+        XCTAssertTrue(assessment.notices.contains(.assessmentLinkDropped))
+    }
+
     func testRejectsAMissingFindingsKey() {
         let object: [String: Any] = ["limitations": "x"]
         XCTAssertThrowsError(try AssessmentParser.parse(object, sourceCount: 2))

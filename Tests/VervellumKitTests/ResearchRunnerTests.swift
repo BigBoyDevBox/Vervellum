@@ -385,6 +385,51 @@ final class ResearchRunnerTests: XCTestCase {
         XCTAssertEqual(Self.stage(of: calls[5]), .assess)
     }
 
+    func testLinkedAssessmentTextIsDiscardedBeforeTheTurnPublishesIt() async throws {
+        let linked: [String: Any] = [
+            "claim": "A linked claim at example.com",
+            "verdict": "supported",
+            "reasoning": "See [proof](/proof).",
+            "sources": [1],
+        ]
+        let clean: [String: Any] = [
+            "claim": "Parallax is measured in arcseconds.",
+            "verdict": "supported",
+            "reasoning": "The numbered evidence says so.",
+            "sources": [1],
+        ]
+        let assessment: [String: Any] = [
+            "findings": [linked, clean],
+            "limitations": "More at //example.org/limits.",
+            "followups": ["example.net/next?", "Which instruments are used?"],
+        ]
+        let transport = StubTransport { call in
+            switch call.kind {
+            case .json where call.url.absoluteString.hasPrefix(Self.modelURL):
+                switch Self.stage(of: call) {
+                case .plan: return .completion(json: Self.plan("stellar parallax"))
+                case .assess: return .completion(json: assessment)
+                default: return .unrouted
+                }
+            case .json where call.url.path == "/search":
+                return .json(Self.searxng([(url: "https://a.example/one", title: "One")]))
+            case .stream:
+                return .stream(["Parallax is measured in arcseconds [1]."])
+            default:
+                return .unrouted
+            }
+        }
+
+        let turn = await run("How is stellar parallax measured?",
+                             pageReading: .off, transport: transport)
+
+        XCTAssertEqual(turn.stage, .complete, turn.failure ?? "no failure recorded")
+        XCTAssertEqual(turn.findings.map(\.claim), ["Parallax is measured in arcseconds."])
+        XCTAssertEqual(turn.limitations, "")
+        XCTAssertEqual(turn.followups, ["Which instruments are used?"])
+        XCTAssertTrue(turn.notices.contains(.assessmentLinkDropped), "\(turn.notices)")
+    }
+
     // MARK: Context budget
 
     /// Four text files at the per-file cap are ~96 KB of JSON, and the evidence behind
@@ -2608,6 +2653,27 @@ final class ResearchRunnerTests: XCTestCase {
         XCTAssertTrue(turn.notices.contains(.revisionUnavailable), "\(turn.notices)")
     }
 
+    /// A revision is only requested after a cited contradiction or mixed verdict. That
+    /// evidence requirement belongs to the correction even when the faulty draft did
+    /// not cite anything itself; otherwise an uncited draft and uncited rewrite evade
+    /// the relative "did the draft lose citations?" check together.
+    func testAnUncitedDraftCannotBeReplacedByAnUncitedRevision() async throws {
+        for verdict in ["contradicted", "mixed"] {
+            let transport = revisionTransport(
+                verdict: verdict,
+                answer: ["Parallax is measured in degrees."],
+                revision: .stream(["Parallax is measured in arcseconds."]))
+
+            let turn = await run("How is stellar parallax measured?", transport: transport)
+
+            XCTAssertEqual(turn.stage, .complete, turn.failure ?? "no failure recorded")
+            XCTAssertEqual(turn.answer, "Parallax is measured in degrees.", verdict)
+            XCTAssertNil(turn.draftAnswer)
+            XCTAssertTrue(turn.notices.contains(.revisionUnavailable), "\(turn.notices)")
+            XCTAssertFalse(turn.notices.contains(.answerRevised))
+        }
+    }
+
     /// The common case, and the one that decides whether this stage costs a call on
     /// every turn. A `supported` finding is the check agreeing with the answer, and an
     /// `insufficient` one is usually the check agreeing with a hedge the answer prompt
@@ -2645,7 +2711,10 @@ final class ResearchRunnerTests: XCTestCase {
     /// on. So it is checked before it is accepted, and dropped whole.
     func testARevisionThatBreaksTheCitationRuleIsDiscarded() async throws {
         for bad in ["Parallax is measured in arcseconds [7].",
-                    "Parallax is measured in arcseconds, see https://a.example/one."] {
+                    "Parallax is measured in arcseconds, see https://a.example/one.",
+                    "Parallax is measured in arcseconds, see //a.example.com/one.",
+                    "Parallax is measured in arcseconds, see a.example.com/one.",
+                    "Parallax is measured in arcseconds, see [source](/one)."] {
             let transport = revisionTransport(
                 verdict: "mixed",
                 answer: ["Parallax is measured in degrees [1]."],

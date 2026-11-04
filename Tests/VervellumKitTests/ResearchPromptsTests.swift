@@ -49,6 +49,11 @@ final class ResearchPromptsTests: XCTestCase {
 
     func testTheCitationRuleStillForbidsURLs() {
         XCTAssertTrue(ResearchPrompts.answer.contains("may not write a URL"))
+        XCTAssertTrue(ResearchPrompts.assess.contains("may not write a URL"))
+        XCTAssertTrue(ResearchPrompts.assess.contains("bare domain"))
+        XCTAssertTrue(ResearchPrompts.assess.contains("markdown link"))
+        XCTAssertTrue(ResearchPrompts.direct.contains("bare domain"))
+        XCTAssertTrue(ResearchPrompts.direct.contains("markdown link"))
     }
 
     /// An attachment has no citation number and cannot get one, so the prompts that

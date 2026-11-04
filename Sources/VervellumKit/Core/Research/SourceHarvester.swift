@@ -5,10 +5,11 @@ import Foundation
 ///
 /// Two of its pieces are on the main path. `normalized(_:)` is what
 /// `EvidenceExtractor` accepts as a source link — anything that is not an absolute
-/// http(s) URL with a host is not a source — and `bareURLs(in:)` is how
-/// `CitationValidator` catches a model writing a link despite being told to cite by
-/// number. Citations themselves are checked as *numbers*, never against a URL list, so
-/// this type is not an allow-list; see `CitationValidator` for why.
+/// http(s) URL with a host is not a source — and `bareURLs(in:)` finds those addresses
+/// inside search results and user questions. Model output has a wider rule (no bare
+/// domains, scheme-relative URLs, or Markdown links either), enforced by
+/// `ForbiddenLinkScanner`. Citations themselves are checked as *numbers*, never against
+/// a URL list, so this type is not an allow-list; see `CitationValidator` for why.
 ///
 /// `urls(in:)`, the exhaustive walk, is kept for diagnostics and tests. It has to be
 /// greedy in exactly one direction — it may over-collect, but it must never miss a URL

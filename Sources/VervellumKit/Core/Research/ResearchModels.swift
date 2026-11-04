@@ -188,8 +188,13 @@ enum TurnNotice: String, Codable, Equatable {
     case evidenceTrimmed
     /// The model cited a source number that does not exist.
     case invalidCitation
-    /// The model wrote a literal URL despite being told to cite by number.
+    /// The model wrote a direct destination despite the no-link rule. The
+    /// raw name predates bare-domain and Markdown-link detection and remains stable so
+    /// stored turns from older builds do not decode as unknown notices.
     case literalURL
+    /// Assessment prose containing a direct destination was discarded rather than
+    /// shown beside the numeric-only answer.
+    case assessmentLinkDropped
     /// The answer was produced with no web evidence at all.
     case noEvidence
     /// A verdict was dropped because it named no source.
@@ -282,7 +287,10 @@ enum TurnNotice: String, Codable, Equatable {
         case .invalidCitation:
             return "The model referred to a source number that does not exist. Those references were left as plain text."
         case .literalURL:
-            return "The model wrote a link directly instead of citing a source number. Treat any such link as unverified."
+            return "The model wrote a direct link despite the no-link rule. Treat it as unverified."
+        case .assessmentLinkDropped:
+            return "Assessment text containing a direct link was discarded. The remaining "
+                + "assessment contains no model-written destinations."
         case .noEvidence:
             return "Answered without web evidence. Nothing here is source-backed."
         case .uncitedVerdictDropped:
@@ -651,7 +659,7 @@ struct ResearchTurn: Codable, Identifiable, Equatable {
     mutating func applyCitationValidation(sourceCount: Int) {
         let validation = CitationValidator.validate(answer: answer, sourceCount: sourceCount)
         if !validation.outOfRangeCitations.isEmpty { addNotice(.invalidCitation) }
-        if !validation.literalURLs.isEmpty { addNotice(.literalURL) }
+        if !validation.forbiddenLinks.isEmpty { addNotice(.literalURL) }
     }
 
     /// Sources the answer actually cites, in citation order. The rest stay available
