@@ -35,8 +35,16 @@ final class AssessmentFailSoftTests: XCTestCase {
         }
     }
 
+    /// A foreign error whose description carries what a real transport error does — a
+    /// URL and the failure's own wording — so the log assertions can prove neither
+    /// leaks. A bespoke type rather than `URLError`: on Darwin a thrown `URLError` is
+    /// bridged to `NSError`, so its logged type name differs between platforms.
+    private struct LeakyAssessmentError: Error, CustomStringConvertible {
+        var description: String { "badServerResponse at https://provider.example/v1?key=secret" }
+    }
+
     /// Forwards everything to a scripted stub except the assessment call, which fails
-    /// with a plain `URLError`: a type no production path is supposed to leak, and
+    /// with a foreign error: a type no production path is supposed to leak, and
     /// therefore the exact shape of the hole.
     private struct RawFailureTransport: HTTPTransporting, @unchecked Sendable {
         let stub: StubTransport
@@ -46,13 +54,14 @@ final class AssessmentFailSoftTests: XCTestCase {
                       isNotification: Bool,
                       deadline: TimeInterval) async throws -> (headers: [String: String],
                                                                body: [String: Any]) {
-            if Self.isAssessment(request) { throw URLError(.badServerResponse) }
+            if Self.isAssessment(request) { throw LeakyAssessmentError() }
             return try await stub.sendJSON(request, expectedID: expectedID,
                                            isNotification: isNotification, deadline: deadline)
         }
 
-        func fetch(_ request: URLRequest, limit: Int) async throws -> (HTTPURLResponse, Data) {
-            try await stub.fetch(request, limit: limit)
+        func fetch(_ request: URLRequest, limit: Int,
+                   deadline: TimeInterval) async throws -> (HTTPURLResponse, Data) {
+            try await stub.fetch(request, limit: limit, deadline: deadline)
         }
 
         func streamJSONEvents(_ request: URLRequest) -> AsyncThrowingStream<[String: Any], Error> {
@@ -124,10 +133,10 @@ final class AssessmentFailSoftTests: XCTestCase {
         // the claim check could not run.
         XCTAssertFalse(turn.notices.contains(.invalidCitation))
 
-        // A foreign error reaches the log as a type name only. `URLError` carries a
-        // failing URL in its description; that text must not appear beside the warning.
+        // A foreign error reaches the log as a type name only. Its description carries a
+        // URL and the failure's wording; neither may appear beside the warning.
         let warning = try XCTUnwrap(log.messages.first { $0.contains("Assessment unavailable") })
-        XCTAssertTrue(warning.contains("URLError"), warning)
+        XCTAssertTrue(warning.contains("LeakyAssessmentError"), warning)
         XCTAssertFalse(warning.contains("badServerResponse"), warning)
         XCTAssertFalse(warning.contains("https://"), warning)
     }
