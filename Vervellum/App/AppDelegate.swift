@@ -226,13 +226,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let summon = preferences.summonHotkey
         summonHotkey.unregister()
         if summon.isValid {
-            summonHotkey.register(keyCode: summon.keyCode, modifiers: summon.modifiers)
+            // The result is the reader's only signal that the shortcut they were
+            // promised actually fires; `CarbonHotkey` logs a status code and nothing
+            // else surfaces it.
+            preferences.summonHotkeyRegistration =
+                summonHotkey.register(keyCode: summon.keyCode, modifiers: summon.modifiers)
+                    ? .registered : .failed
+        } else {
+            preferences.summonHotkeyRegistration = .notAttempted
         }
 
         let selection = preferences.researchSelectionHotkey
         selectionHotkey.unregister()
         if selection.isValid {
-            selectionHotkey.register(keyCode: selection.keyCode, modifiers: selection.modifiers)
+            preferences.researchSelectionHotkeyRegistration =
+                selectionHotkey.register(keyCode: selection.keyCode,
+                                        modifiers: selection.modifiers)
+                    ? .registered : .failed
+        } else {
+            preferences.researchSelectionHotkeyRegistration = .notAttempted
         }
     }
 

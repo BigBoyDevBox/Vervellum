@@ -124,6 +124,23 @@ final class Preferences: ObservableObject {
 
     // MARK: Shortcuts
 
+    /// Whether the system could actually be made to deliver each global shortcut.
+    ///
+    /// `CarbonHotkey.register` answers a status code rather than an error, and a
+    /// combination another application already owns cannot be claimed. The summon
+    /// shortcut is this app's primary interaction, so a silent failure is the one
+    /// configuration outcome the reader has no way to discover. The recorder itself
+    /// accepts any key combination; only the system can say whether it will fire.
+    enum HotkeyRegistration: String {
+        /// The binding is disabled, so no registration was attempted.
+        case notAttempted
+        case registered
+        case failed
+    }
+
+    @Published var summonHotkeyRegistration: HotkeyRegistration = .notAttempted
+    @Published var researchSelectionHotkeyRegistration: HotkeyRegistration = .notAttempted
+
     var summonHotkey: HotkeyBinding {
         get { HotkeyBinding.decode(defaults.string(forKey: Key.summonHotkey), fallback: Default.summonHotkey) }
         set { set(newValue.jsonString, Key.summonHotkey) }
