@@ -5,6 +5,6 @@ import XCTest
 final class ActivationPolicyTests: XCTestCase {
 
     func testRestoringActivationDoesNotRaiseEveryWindow() {
-        XCTAssertFalse(NSApplication.vervellumRestoreActivationOptions.contains(.activateAllWindows))
+        XCTAssertTrue(NSApplication.vervellumRestoreActivationOptions.isEmpty)
     }
 }
