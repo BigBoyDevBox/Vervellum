@@ -240,6 +240,23 @@ final class CorePreferencesTests: XCTestCase {
         XCTAssertEqual(settings.searchEndpoint, "https://searx.example.org")
     }
 
+    /// The scalar mirror is the Linux settings format and the downgrade path. A future
+    /// kind has to survive a read/write cycle there too, without becoming MCP.
+    func testAnUnknownScalarSearchProviderKindIsPreserved() {
+        let store = MemorySettingsStore([
+            "searchEndpoint": "https://future.example",
+            "searchProvider": "quantum",
+        ])
+        let preferences = CorePreferences(store: store)
+
+        let settings = preferences.providerSettings
+        XCTAssertEqual(settings.searchKind.rawValue, "quantum")
+        preferences.providerSettings = settings
+        XCTAssertEqual(store.string(for: "searchProvider"), "quantum")
+        XCTAssertTrue(store.string(for: "searchProviders")?.contains(#""kind":"quantum""#)
+                      == true)
+    }
+
     func testSearchProvidersRoundTripAndMirrorTheSelectedOne() {
         let store = MemorySettingsStore()
         let settings = CorePreferences(store: store)
