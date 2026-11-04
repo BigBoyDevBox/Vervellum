@@ -91,6 +91,13 @@ final class ChatCompletionsClientTests: XCTestCase {
                        "ready")
     }
 
+    /// Recovery is deliberately finite: a response with a pathological number of
+    /// unmatched candidate starts is corrupt, and must not make parsing quadratic.
+    func testStopsRecoveringAfterPathologicallyManyUnclosedObjects() {
+        let text = String(repeating: "{", count: 1_000) + #"{"ok": true}"#
+        XCTAssertNil(ChatCompletionsClient.decodeJSONObject(from: text))
+    }
+
     // MARK: Request shape
 
     /// The two optional fields not every endpoint accepts, and nothing else, come and go
