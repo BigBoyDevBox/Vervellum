@@ -42,6 +42,19 @@ final class ProviderReadinessTests: XCTestCase {
         XCTAssertTrue(secrets.reads.isEmpty)
     }
 
+    /// Model endpoints may be authenticated or keyless, and their URL cannot tell us
+    /// which. An absent optional key therefore cannot make an otherwise complete model
+    /// look unconfigured or prompt the Keychain during a readiness refresh.
+    func testHostedModelReadinessTreatsTheKeyAsOptionalWithoutReadingIt() {
+        let settings = ProviderSettings(modelEndpoint: "https://models.example/v1",
+                                        modelName: "hosted")
+        let secrets = RecordingSecrets()
+
+        XCTAssertTrue(ProviderReadiness.problems(settings: settings, level: .direct,
+                                                 secrets: secrets).isEmpty)
+        XCTAssertTrue(secrets.reads.isEmpty)
+    }
+
     func testKeylessSearchBackendReadinessDoesNotReadCredentials() {
         let settings = ProviderSettings(modelEndpoint: "http://localhost:11434/v1",
                                         modelName: "local",

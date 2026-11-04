@@ -32,7 +32,7 @@ struct EmptyStateView: View {
                 .foregroundStyle(PanelTheme.Palette.primaryText)
             Text(searches
                  ? "Vervellum plans web searches, runs them, then writes an answer that "
-                    + "cites only what it found — and grades its claims against that evidence."
+                    + "cites only what it found — and grades its own claims against that evidence."
                  : "No search sends the question only to the selected model. It does not "
                     + "search, cite sources, or run the evidence assessment.")
                 .font(PanelTheme.Font.body(textScale))
