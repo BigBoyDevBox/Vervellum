@@ -65,6 +65,18 @@ final class SecretRedactorTests: XCTestCase {
         assertRedacted("Here is the key:\n\(pem)", "MIIEowIBAAKCAQEA")
     }
 
+    func testRedactsPrivateKeyBlockTruncatedBeforeItsEndDelimiter() {
+        let truncated = """
+            -----BEGIN RSA PRIVATE KEY-----
+            MIIEowIBAAKCAQEAxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+            """
+
+        let result = SecretRedactor.redact("Here is the key:\n\(truncated)")
+
+        XCTAssertEqual(result.redactionCount, 1)
+        XCTAssertEqual(result.text, "Here is the key:\n[redacted]")
+    }
+
     func testRedactsCredentialsInAURL() {
         assertRedacted("postgres://admin:s3cr3tpass@db.example.com/app", "s3cr3tpass")
     }

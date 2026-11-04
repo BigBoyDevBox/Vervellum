@@ -546,6 +546,21 @@ struct ProviderSettings: Equatable, Codable {
     /// when search is misconfigured — which is exactly when a user reaches for it.
     func problems(hasModelKey: Bool, hasSearchKey: Bool, requiresSearch: Bool = true) -> [String] {
         var problems: [String] = []
+        // IDs are not presentation metadata: they key the credential snapshot and the
+        // model-client cache. If two rows share one, the later row's key overwrites the
+        // earlier row's dictionary entry and can be sent to the earlier endpoint. This is
+        // the one validation that deliberately examines unselected profiles — a damaged
+        // spare must not turn a selected provider into a credential-crossing path.
+        if Set(modelProfiles.map(\.id)).count != modelProfiles.count {
+            problems.append("Two or more model providers have the same internal identifier. "
+                            + "Remove and re-add one in Settings.")
+        }
+        // A no-search turn never builds or contacts a search backend, so an unrelated
+        // damaged search list must not take away the one mode that can still answer.
+        if requiresSearch, Set(searchProfiles.map(\.id)).count != searchProfiles.count {
+            problems.append("Two or more search providers have the same internal identifier. "
+                            + "Remove and re-add one in Settings.")
+        }
         if modelEndpoint.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             problems.append("The model endpoint is empty.")
         } else if Self.chatCompletionsURL(from: modelEndpoint) == nil {

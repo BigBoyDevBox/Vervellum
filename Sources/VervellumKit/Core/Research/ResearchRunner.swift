@@ -522,8 +522,16 @@ final class ResearchRunner: ResearchRunning {
                     // transport is entitled to throw `URLError` and the chain's own
                     // fallback code already says in as many words that a non-`ResearchError`
                     // can reach it. Only a Stop propagates.
-                    let reason = (error as? ResearchError)?.message ?? String(describing: error)
-                    trace.warn("Search engine \(profile.displayName) is not usable: \(reason)")
+                    let reason = ResearchError.disclosedSearchFailure(error)
+                    // The type name beside the safe sentence: the trace is Vervellum's
+                    // own channel, and "URLError" versus something else is the one
+                    // diagnostic the fixed sentence cannot carry. It is `safeLabel`
+                    // — a type name, never a foreign description — so the rule that
+                    // provider text stays out of the log still holds.
+                    let detail = error is ResearchError
+                        ? "" : " (\(ResearchError.safeLabel(for: error)))"
+                    trace.warn("Search engine \(profile.displayName) is not usable: "
+                               + "\(reason)\(detail)")
                 }
                 try Task.checkCancellation()
             }
@@ -1163,6 +1171,14 @@ final class ResearchRunner: ResearchRunning {
             }
             if searchesUsed >= Self.maxAgentSearches {
                 trace.log("Agent loop stopped: out of searches")
+                // A loop stopped here is stopped, not satisfied: every step it took
+                // was a search, so the reads it had left to do never got a step. The
+                // staged path's answer-stage fill exists for exactly this shape of
+                // turn — a source list with nothing but snippets — and the model's
+                // own stop (`.answer`) remains the one exit that skips it, because
+                // *that* stop is the loop choosing to save the budget.
+                await fillUnreadPages(soFar, settings: settings,
+                                      pageBudget: &pageBudget, plannedReads: &plannedReads)
                 break
             }
 
@@ -1248,6 +1264,26 @@ final class ResearchRunner: ResearchRunning {
         trace.log("Agent loop ran \(steps) step(s), \(searchesUsed) search(es)")
         update { $0.reading = lastThought }
         return .gathered(reading: lastThought)
+    }
+
+    /// The rank-order fill the staged path's answer stage always gets: the top
+    /// unread, publicly routable sources, within whatever page budget the turn has
+    /// left. The agent loop calls it on the one exit where the loop's own choice
+    /// cannot be honoured — stopped by the search cap mid-strategy — and not on the
+    /// exits where the loop itself decided (`.answer`, an unreadable step) or where
+    /// more fetching would be dropped anyway (the evidence budget is full).
+    private func fillUnreadPages(_ sources: [Source],
+                                 settings: ProviderSettings,
+                                 pageBudget: inout Int,
+                                 plannedReads: inout [Int: String]) async {
+        guard settings.pageReading != .off, pageBudget > 0 else { return }
+        let targets = readableTargets(in: sources).prefix(max(0, pageBudget)).map(\.number)
+        guard !targets.isEmpty else { return }
+        update { $0.stage = .searching }
+        let (texts, spent) = await readPlannedPages(Array(targets), in: sources,
+                                                    settings: settings, budget: pageBudget)
+        pageBudget -= spent
+        plannedReads.merge(texts) { _, new in new }
     }
 
     /// The mutable state of a turn's searching, gathered so it can pass between
@@ -1387,7 +1423,9 @@ final class ResearchRunner: ResearchRunning {
                 // may have spent a dozen billed requests before reaching here.
                 // Narrowed to `ResearchError` this caught none of the failures the
                 // transport can raise on its own.
-                let reason = (error as? ResearchError)?.message ?? String(describing: error)
+                // Not `String(describing:)`: this string is shown when every
+                // search fails, and a URLError's description includes the URL.
+                let reason = ResearchError.disclosedSearchFailure(error)
                 return Outcome(step: step, engine: engineIndex, result: nil,
                                fruitful: false, failure: reason)
             }

@@ -231,6 +231,39 @@ final class ResearchEngineTests: XCTestCase {
         XCTAssertEqual(engine.thread.turns.count, 1)
     }
 
+    /// `/new` detaches a session so it keeps working — which also means Stop on the
+    /// thread now on screen cannot reach it. `cancelAll` is the status item's brake and
+    /// must stop both the visible run and the detached one.
+    func testCancelAllStopsADetachedRunToo() {
+        let scheduler = ManualScheduler()
+        var runners: [ManualRunner] = []
+        let engine = ResearchEngine(
+            preferences: CorePreferences(store: MemorySettingsStore()),
+            secrets: EphemeralSecretStore(), logSink: SilentLog(),
+            makeRunner: { _, _, _ in runners.removeFirst() },
+            deliver: scheduler.enqueue, after: scheduler.after)
+        var latest: [UUID: ResearchThread] = [:]
+        engine.onThreadChanged = { latest[$0.id] = $0 }
+
+        runners = [ManualRunner { }, ManualRunner { }]
+        engine.ask("First")
+        let detachedID = engine.thread.id
+        engine.startNewThread()            // detaches the first session
+        engine.ask("Second")
+        scheduler.drain()
+
+        XCTAssertEqual(engine.runningThreadIDs.count, 2)
+
+        engine.cancelAll()
+        scheduler.drain()
+
+        XCTAssertFalse(engine.isBusy)
+        XCTAssertTrue(engine.runningThreadIDs.isEmpty)
+        XCTAssertEqual(latest[engine.thread.id]?.turns.last?.stage, .cancelled)
+        XCTAssertEqual(latest[detachedID]?.turns.last?.stage, .cancelled,
+                       "a run left on another thread must be reachable by Stop All")
+    }
+
     /// A failed turn usually means a provider, a key or a quota — conditions the next
     /// question would meet unchanged. Running the queue anyway would collect the same
     /// error once per question and bill for each.

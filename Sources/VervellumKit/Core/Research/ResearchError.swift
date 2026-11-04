@@ -20,6 +20,16 @@ struct ResearchError: LocalizedError, Equatable {
         (error as? ResearchError)?.message ?? String(describing: type(of: error))
     }
 
+    /// What a search failure may say out loud.
+    ///
+    /// A `ResearchError` is already our sentence. Anything else must not be
+    /// `String(describing:)` or `localizedDescription`: both have included the
+    /// request URL, and a search URL can carry a token.
+    static func disclosedSearchFailure(_ error: Error) -> String {
+        if let research = error as? ResearchError { return research.message }
+        return "The search provider could not be reached."
+    }
+
     /// Whether handing the turn to the next provider in the chain could plausibly help.
     ///
     /// The default is yes, and the exceptions are the two failures that are *Vervellum's

@@ -55,8 +55,7 @@ final class StubTransport: HTTPTransporting, @unchecked Sendable {
         let timeout: TimeInterval
         /// The wall clock on reading the body, for a `sendJSON`. A caller that means "not
         /// longer than this" has to set both — they are different clocks — so a test that
-        /// checked only `timeout` would pin half the promise. Nil for a stream or a fetch,
-        /// neither of which takes one.
+        /// checked only `timeout` would pin half the promise. Nil for a stream.
         let deadline: TimeInterval?
         /// The decoded JSON body, for a POST that carried one.
         let body: [String: Any]?
@@ -137,8 +136,10 @@ final class StubTransport: HTTPTransporting, @unchecked Sendable {
         }
     }
 
-    func fetch(_ request: URLRequest, limit: Int) async throws -> (HTTPURLResponse, Data) {
-        guard case .page(let status, let headers, let text) = try answer(to: request, kind: .fetch) else {
+    func fetch(_ request: URLRequest, limit: Int,
+               deadline: TimeInterval) async throws -> (HTTPURLResponse, Data) {
+        guard case .page(let status, let headers, let text) = try answer(
+            to: request, kind: .fetch, deadline: deadline) else {
             throw ResearchError("StubTransport: fetch was answered with a non-page reply.")
         }
         let url = request.url ?? URL(string: "https://example.invalid/")!

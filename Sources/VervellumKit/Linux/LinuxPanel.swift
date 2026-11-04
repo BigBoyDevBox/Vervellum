@@ -342,6 +342,16 @@ final class LinuxPanel {
             if !pendingAttachments.isEmpty { appendNotice(AttachmentIntake.questionlessMessage) }
             return
         }
+        // A slash word still being typed is a command being chosen, not a question.
+        // The macOS composer declines to send one — `isHalfTypedCommand` is the rule,
+        // tested in Core — and this front end had no counterpart: Return on `/`, `/de`
+        // or any partial word spent a request asking the model that word, while the
+        // empty state advertised "/ for commands". The same sentence is used; it is
+        // not shared only because the macOS copy lives in the SwiftUI view.
+        guard !ComposerCommand.isHalfTypedCommand(text) else {
+            appendNotice("Finish the command name")
+            return
+        }
 
         switch ComposerCommand.parse(text) {
         case .none:

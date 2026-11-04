@@ -44,6 +44,21 @@ final class AttachmentStoreTests: XCTestCase {
         XCTAssertFalse(store.exists(record()))
     }
 
+    /// A stored file is outside the intake path: it may have been replaced by hand or
+    /// by a damaged sync. Reading only through the shared cap prevents a retry or panel
+    /// preview from allocating an arbitrarily large file before it can be refused.
+    func testReadingIsCappedOneBytePastTheAttachmentLimit() throws {
+        let store = AttachmentStore(directory: directory)
+        let exact = record()
+        try store.write(Data(repeating: 0, count: Attachment.maxAttachmentBytes), for: exact)
+        XCTAssertEqual(store.data(for: exact)?.count, Attachment.maxAttachmentBytes)
+
+        let oversized = record()
+        try store.write(Data(repeating: 0, count: Attachment.maxAttachmentBytes + 1),
+                        for: oversized)
+        XCTAssertNil(store.data(for: oversized))
+    }
+
     /// The sweep is by reachability. It is handed what is still referenced, never what
     /// was removed, so a delete that raced a save cannot take a live attachment with it.
     func testSweepingKeepsWhatIsStillReferenced() throws {

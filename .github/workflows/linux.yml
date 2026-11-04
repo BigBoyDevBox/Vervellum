@@ -56,6 +56,9 @@ jobs:
       - name: Test provider protocols over loopback
         run: python3 Tests/Integration/provider_fixtures.py .build/release/vervellum
 
+      - name: Test package dependency discovery
+        run: python3 Tests/Integration/deb_dependencies.py
+
       # Native close must retain the window that the next shortcut will reuse, and the
       # test accessibility backend exposes widget semantics without a desktop reader.
       - name: Test the GTK window lifecycle and accessibility
