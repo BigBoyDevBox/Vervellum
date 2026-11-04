@@ -37,8 +37,8 @@ final class MemorySettingsStore: SettingsStore {
 /// than debounced: settings change at human speed, and a preference the user just set
 /// must survive a crash a second later.
 ///
-/// A file that fails to parse is treated as empty rather than fatal. Losing preferences
-/// is annoying; refusing to launch because of them is worse.
+/// A file that fails to parse reads as empty rather than blocking launch. Writes
+/// preserve an unreadable file until it is repaired, rather than erasing external edits.
 final class JSONFileSettingsStore: SettingsStore {
 
     private let url: URL
@@ -70,7 +70,19 @@ final class JSONFileSettingsStore: SettingsStore {
     func setBool(_ value: Bool?, for key: String) { write(value, key) }
 
     private func write(_ value: Any?, _ key: String) {
+        // Linux users edit this file directly; preserve unrelated edits between writes.
+        let data = try? Data(contentsOf: url)
+        let current = data.flatMap { (try? JSONSerialization.jsonObject(with: $0)) as? [String: Any] }
+        let exists = FileManager.default.fileExists(atPath: url.path)
+        if let current { values = current } else if !exists { values = [:] }
         if let value { values[key] = value } else { values.removeValue(forKey: key) }
+
+        // Keep in-session changes usable even when persistence must preserve a damaged file.
+        guard current != nil || !exists else {
+            FileHandle.standardError.write(Data(
+                "vervellum warning: settings are unreadable; no changes were saved\n".utf8))
+            return
+        }
         flush()
     }
 
