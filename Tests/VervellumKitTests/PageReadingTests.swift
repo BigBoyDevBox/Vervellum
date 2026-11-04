@@ -59,6 +59,67 @@ final class PageReadingTests: XCTestCase {
         XCTAssertFalse(text.contains("Sidebar clutter"))
     }
 
+    /// HTML5 puts the headline and lede in `<header>` *inside* the article. Stripping
+    /// every header before isolating the article drops the part the page is named for.
+    func testAnArticleHeaderIsKeptAndASiteHeaderIsNot() {
+        let body = String(repeating: "The body continues. ", count: 20)
+        let html = """
+            <html><body>
+            <header><a href="/">Site title</a></header>
+            <article>
+            <header><h1>The real headline</h1><p>The lede that the claim rests on.</p></header>
+            <p>\(body)</p>
+            </article>
+            <footer>Copyright notice</footer>
+            </body></html>
+            """
+        let text = HTMLTextExtractor.text(from: html, limit: 4_000, minimum: 0)
+        XCTAssertTrue(text.contains("The real headline"), text)
+        XCTAssertTrue(text.contains("The lede that the claim rests on."), text)
+        XCTAssertFalse(text.contains("Site title"), text)
+        XCTAssertFalse(text.contains("Copyright notice"), text)
+    }
+
+    /// An unclosed script runs to the end of the document in a browser. Leaving its
+    /// body in the extract hands the model the page's JavaScript.
+    func testAnUnclosedScriptDoesNotBecomePageText() {
+        let html = "<html><body><script>var secret = \"do not read me\";<p>The article.</p></body></html>"
+        let text = HTMLTextExtractor.text(from: html, limit: 4_000, minimum: 0)
+        XCTAssertFalse(text.contains("do not read me"), text)
+        XCTAssertFalse(text.contains("The article"), text)
+    }
+
+    /// A `<!--` inside a closed script is text, not a comment. Stripping comments
+    /// before script bodies made the comment regex eat the `</script>` and turn a
+    /// closed script into a runaway that cut the rest of the page.
+    func testACommentMarkerInsideAScriptCannotSwallowThePage() {
+        let html = "<html><body><script>var s = \"<!--\";</script>"
+            + "<p>Keep me.</p></body></html>"
+        let text = HTMLTextExtractor.text(from: html, limit: 4_000, minimum: 0)
+        XCTAssertTrue(text.contains("Keep me."), text)
+
+        // The `-->` left in prose must not become the far end of a comment either.
+        let arrow = "<html><body><script>var s = \"<!--\";</script>"
+            + "<p>a --> b</p></body></html>"
+        let arrowText = HTMLTextExtractor.text(from: arrow, limit: 4_000, minimum: 0)
+        XCTAssertTrue(arrowText.contains("a --> b"), arrowText)
+
+        // The hide-from-ancient-browsers idiom inside a closed style element.
+        let style = "<style><!--\nbody { color: red }\n--></style><p>Keep me.</p>"
+        let styleText = HTMLTextExtractor.text(from: style, limit: 4_000, minimum: 0)
+        XCTAssertTrue(styleText.contains("Keep me."), styleText)
+    }
+
+    /// An unclosed comment costs a little comment text, not the rest of the page.
+    /// Leaking a fragment is the safer failure for extraction: browsers swallow the
+    /// tail, but a page that never says what it came to say is the worse miss.
+    func testAnUnclosedCommentDoesNotCutThePage() {
+        let html = "<html><body><p>Before.</p><!-- stray opener\n<p>After.</p></body></html>"
+        let text = HTMLTextExtractor.text(from: html, limit: 4_000, minimum: 0)
+        XCTAssertTrue(text.contains("Before."), text)
+        XCTAssertTrue(text.contains("After."), text)
+    }
+
     /// A `<main>` holding only a heading is a page whose content is elsewhere: trusting
     /// the marker there loses the page.
     func testAnEmptyArticleMarkerFallsBackToTheDocument() {
