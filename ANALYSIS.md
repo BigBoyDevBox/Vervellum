@@ -1,17 +1,18 @@
 # Vervellum research backlog
 
-Consolidated 2026-11-02. Code baseline: `0311b35`; concurrent analysis retained
-through `daa28d5`. Completed requirements and implemented slices in open PRs are
-omitted. Earlier context remains in [PR-REVIEW.md](PR-REVIEW.md), [fable.md](fable.md)
-and the [historical analysis](https://github.com/L-K-M/Vervellum/blob/0311b35/ANALYSIS.md).
+Consolidated 2026-11-04 against `origin/main` at `ef92cbf`. Completed requirements
+and implemented slices in open PRs are omitted. Earlier context remains in
+[PR-REVIEW.md](PR-REVIEW.md), [fable.md](fable.md) and the
+[historical analysis](https://github.com/L-K-M/Vervellum/blob/0311b35/ANALYSIS.md).
 
-Open PRs #125–#156 were checked for coverage; only their implemented slices are
-omitted. They are not merged. Restore a requirement from its PR if it closes
-unmerged. Only the nine Sol2 PRs were verified together; parallel PRs were not
-reviewed here. #138's proposed code-URL exemption conflicts with the citation
-contract and was flagged on that PR.
+Relevant open PRs through #184 were checked for overlap; only their implemented
+slices are omitted. They are not merged. Restore a requirement from its PR if it
+closes unmerged. Sol3 feature PRs were verified on their individual heads rather
+than as a combined stack; parallel PRs not cited here were not reviewed. #138's
+proposed code-URL exemption conflicts with the citation contract and was flagged
+on that PR.
 
-The nine owned patches passed together: 903 macOS tests with Xcode 26.0.1 on
+The nine earlier Sol2 patches passed together: 903 macOS tests with Xcode 26.0.1 on
 macOS 15 Intel; the 839-case Linux suite with the display-dependent GTK test
 skipped; a release build; eleven loopback provider fixtures; three dependency
 discovery tests. Local Xvfb could not initialize XKB. Real VoiceOver, Wayland,
@@ -33,26 +34,6 @@ Historical scores are mean · user/engineer/designer · effort, not new measurem
 S means local work, M several components, L design work. Estimates are rough.
 
 ## Important
-
-### A07 · Redact captured text before truncation
-
-Bugs — important
-
-The selection path caps captured text at 8,000 characters before `SecretRedactor`
-runs (`SelectedTextReader.trim`), so the cap can remove a PEM closing delimiter and
-defeat the redactor's complete-block pattern. Partial selections already need
-conservative treatment. Redaction currently happens only at seeding, after
-truncation. Captured text stays opt-in and is never auto-sent or logged.
-
-Suggested fix: return capture metadata from the AX read; redact the bounded captured
-text before display truncation; treat an unterminated private-key block
-conservatively (redact it) rather than passing it through.
-
-Accept: long complete PEMs, cut-off delimiters, ordinary prose, and visible
-truncation/redaction notices; captured text stays opt-in and never auto-sent or
-logged. Pairs with A63 for the paste path.
-
-Earlier effort: M.
 
 ### A09 · Describe only the searches that actually ran
 
@@ -157,17 +138,20 @@ Accept: Hung/missing/failing secret-tool, locked keyrings, environment overrides
 
 Where: Sources/VervellumKit/Linux/LinuxSecretStore.swift; LinuxPanel.swift. Earlier effort: M.
 
-### A18 · Reject global shortcuts that steal ordinary typing
+### A18 · Protect editing shortcuts from global registration
 
 General issues — important
 
-HotkeyBinding.isValid accepts every nonzero modifier mask, including Shift-only character chords. Bare-Command editing shortcuts can also be registered globally. Option-only character chords need an explicit policy, not an inaccurate blanket claim that Option-only is always invalid.
+After Shift-only bindings are rejected, any Command-, Control-, or Option-modified
+chord remains registerable, including global versions of editing commands such as
+Command-C, Command-V, and Command-Z. Those bindings can steal routine editing across
+macOS, while Option-only character chords still lack an explicit text-composition
+policy. The remaining policy belongs in `HotkeyBinding.swift` and
+`HotkeyRecorder.swift`, before Carbon registration.
 
-Suggested fix: Require a command modifier (Command, Control or Option), reject stored Shift-only bindings at registration, and define protected editing chords. Review Option-only text-composition conflicts separately.
-
-Accept: Test recorder, stored preferences and registration together. Keep Carbon registration and the permission-free summon path.
-
-Where: Vervellum/Model/HotkeyBinding.swift:19; Vervellum/Settings/HotkeyRecorder.swift. Earlier effort: S.
+Suggested fix: reject a documented set of protected editing chords before
+registration, define the Option-only policy explicitly, and test recorder, stored
+preferences, duplicate handling, and Carbon registration together.
 
 ### A18a · Make Keychain Clear outcomes match the save model
 
@@ -304,18 +288,6 @@ Accept: An alert must never leave Vervellum frontmost without a window.
 
 Where: Vervellum/Updates/UpdateChecker.swift; Vervellum/App/AppDelegate.swift. Earlier effort: M.
 
-### A77a · Do not raise every window when yielding activation
-
-Bugs — important
-
-Activation restoration uses activateAllWindows, raising unrelated windows of the previous app.
-
-Suggested fix: Restore activation with empty options and verify the actual window handoff.
-
-Accept: Dismissal raises only what the user left, including after Settings closes.
-
-Where: Vervellum/Panel/PanelController.swift:279; SettingsWindowController.swift:95. Earlier effort: S.
-
 ### A77b · Refresh the remembered foreground application
 
 Bugs — important
@@ -342,31 +314,35 @@ Where: Vervellum/Selection/SelectedTextReader.swift; Vervellum/App/AppDelegate.s
 
 ## Nice-to-have
 
-### A06 · Attachment and output reserves for stage budgets
+### A06 · Reserve model output in stage budgets
 
 Bugs — nice-to-have
 
-Serialized-byte measurement (including array separators), fixed-input rejection at
-encode, disclosed per-entry historic trimming, batched removal and the deep evidence
-ceiling are in place. Two clauses remain: attachments are not accounted when the
-search budget is spent; a deep turn with several text attachments plans and pays
-for searches, then its oversized fixed answer context is rejected late, and the
-rejection advice omits attachments (S34); and each stage still needs a measured
-*output* reserve so prompt assembly cannot consume the space the model's own answer
-needs.
+Input budgeting now charges attachments and rejects an impossible combined answer
+context before planning, but stage prompt assembly can still consume the model's
+whole context allowance without reserving measured space for the generation itself.
+A provider may therefore truncate or reject an otherwise valid planning, answering,
+assessment, or revision request.
 
-Suggested fix: reserve attachment bytes when allocating evidence, or reject an
-impossible combined input before planning; never silently truncate it; compute and
-enforce a per-stage output reserve in `ResearchContext`.
+Suggested fix: define a measured output reserve for each generation stage, subtract
+it from the stage's available input budget in `ResearchContext`, and cover exact
+boundaries, Unicode, long history, and zero-history cases without silently cropping
+current input.
 
-Accept: giant question/schema/answer with and without attachments, Unicode, exact
-boundaries, zero-history, and long-history tests; no silently over-budget or
-silently cropped current input; rejection messaging names attachments when they are
-the cause.
+### A07 · Carry capture redaction and truncation metadata
 
-Where: Sources/VervellumKit/Core/Research/ResearchRunner.swift:717; ResearchContext.swift:17,27,82–91. Attachment reserve effort: 1 day (S34).
+Bugs — nice-to-have
 
-Earlier effort: M.
+`SelectedTextReader.trim` reduces selection capture to a bare `String`, so the
+composer cannot distinguish ordinary input from an Accessibility value that was
+length-capped or changed by `SecretRedactor`, and redaction still sees only the
+already-trimmed text. The user therefore cannot tell which safety transformation
+occurred, while future redaction rules must reason about shortened input.
+
+Suggested fix: return a capture result that carries truncation and redaction
+metadata, redact the bounded captured value before display truncation, and show a
+concise composer notice without changing the opt-in, never-auto-submit, never-log
+behavior.
 
 ### A10 · Provider and MCP capability remainder
 
@@ -852,32 +828,28 @@ Accept: Never silently resend old threads or present a refreshed source list alo
 
 Earlier effort: L. Historical options: watch 5.3 · 5/5/6 · M; comparison strip 4.7 · 5/4/5 · M.
 
-### A40 · Documentation drift remainder
+### A40 · Documentation and release-gate drift remainder
 
 General issues — nice-to-have
 
-Generic-MCP scope, the Linux key ladder, transport scoping, the "structurally
-impossible" wording and the CHANGELOG were corrected. Remaining verified drift:
-the release workflow installs
-`desktop-file-utils` but never validates the entry, and `linux.yml`, which does,
-does not run for tags (B104); `0.1.0` is hard-coded in README's install line and
-build examples outside the release-bump marker (B105, with A78); `CICD.md`
-references a `glm-review.yml` workflow that does not exist (the file is
-`zai-code-review.yml`); `PRIVACY.md` still describes the update User-Agent as a
-bundle identifier rather than `Vervellum/<version>` and omits Linux's stderr
-logging backend (B107); README's "Threads are searchable" and Up/Down recall
-claims are unscoped for Linux (B56, with A76); the digest-pin claim (A49); verify the remaining `MarkdownParserTests` emphasis claims and erase-path backup
-fixtures (B69); launch-with-history-off already creates a backup, so do not add a
-duplicate regression; verify the ICON-CREDITS SF Symbol inventory.
+Verified drift remains across documentation and release automation. `CICD.md` names
+a nonexistent `glm-review.yml` trigger instead of the single
+`zai-code-review.yml` review workflow, and describes three release assets although
+releases publish four including Flatpak. The tag workflow runs shared tests but skips
+the provider fixtures, GTK lifecycle check, and desktop validation used by ordinary
+Linux CI; it installs `desktop-file-utils` without invoking it, while `linux.yml`
+does not run for tags. README still hard-codes `0.1.0` outside the release marker
+and leaves Linux scope ambiguous for search and Up/Down recall. `PRIVACY.md`
+misstates the update User-Agent and omits Linux stderr logging. Remaining Markdown
+emphasis claims, erase-backup fixture claims, and the ICON-CREDITS SF Symbol inventory
+also need reconciliation against code.
+Launch-with-history-off already covers backup creation and should not gain a
+duplicate regression.
 
-Suggested fix: correct each document against the code it describes; make the
-release workflow validate the desktop entry it installs; fix or remove tests that
-cannot fail for their stated reason.
-
-Accept: docs describe tested guarantees and remaining limits only; every stated
-test can fail for its stated reason.
-
-Earlier effort: M.
+Suggested fix: update each document to the behavior that exists, share or reproduce
+the complete Linux verification gate in the release workflow, validate every stated
+test against a failure it can actually catch, and keep the published asset inventory
+in step with release automation.
 
 ### A43 · Bounded transient retry remainder
 
@@ -1614,6 +1586,28 @@ and says so.
 Where: Sources/VervellumKit/Core/Platform/AppIdentity.swift:23–29; packaging/build-deb.sh:11,33. Effort: half a day (S10).
 
 Earlier effort: S.
+
+### A79 · Bound stored attachment rereads
+
+Bugs — nice-to-have
+
+`AttachmentStore.load` trusts persisted metadata and reads a stored file wholly into
+memory. A file replaced or corrupted outside Vervellum can therefore cause a large
+allocation when a turn is retried or reopened.
+
+Suggested fix: inspect the file immediately before reading and use a byte-capped read
+that rejects data beyond the attachment limit.
+
+### A80 · Validate persisted attachment sizes
+
+Bugs — nice-to-have
+
+`Attachment` accepts a negative decoded `byteCount`, so a damaged archive can display
+nonsensical sizes and corrupt accounting even though the rest of the turn is
+recoverable.
+
+Suggested fix: clamp legacy negative values to zero or discard only the invalid
+attachment while preserving the containing turn, with tolerant-decoding tests.
 
 ### S07 · Match key hints to the submit preference
 
