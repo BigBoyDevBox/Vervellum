@@ -209,6 +209,37 @@ final class ProviderSettingsTests: XCTestCase {
         XCTAssertTrue(settings.problems(hasModelKey: true, hasSearchKey: true).isEmpty)
     }
 
+    /// Provider ids key both the credential snapshot and the model-client cache. Two
+    /// rows sharing one would make the later row's secret available to the earlier
+    /// row's endpoint, so damaged settings have to fail before either can be contacted.
+    func testDuplicateProviderIDsBlockAResearchTurn() {
+        let model = ModelProfile.new(name: "First", endpoint: "https://a.example.com/v1",
+                                     model: "a")
+        var duplicateModel = ModelProfile.new(name: "Second",
+                                              endpoint: "https://b.example.com/v1", model: "b")
+        duplicateModel.id = model.id
+
+        let search = SearchProfile.new(name: "First search", kind: .searxng,
+                                       endpoint: "https://search-a.example.com")
+        var duplicateSearch = SearchProfile.new(name: "Second search", kind: .searxng,
+                                                endpoint: "https://search-b.example.com")
+        duplicateSearch.id = search.id
+
+        let settings = ProviderSettings(modelProfiles: [model, duplicateModel],
+                                        selectedModelID: model.id,
+                                        searchProfiles: [search, duplicateSearch],
+                                        selectedSearchID: search.id)
+
+        XCTAssertEqual(settings.problems(hasModelKey: true, hasSearchKey: true), [
+            "Two model providers have the same internal identifier. Remove and re-add one in Settings.",
+            "Two search providers have the same internal identifier. Remove and re-add one in Settings.",
+        ])
+        XCTAssertEqual(settings.problems(hasModelKey: true, hasSearchKey: true,
+                                         requiresSearch: false), [
+            "Two model providers have the same internal identifier. Remove and re-add one in Settings.",
+        ], "an unused search configuration does not block a no-search turn")
+    }
+
     func testProfilesRoundTripThroughTheEncodedForm() throws {
         let profiles = [
             ModelProfile.new(name: "First", endpoint: "https://a.example.com/v1", model: "a"),
