@@ -143,6 +143,23 @@ final class CorePreferencesTests: XCTestCase {
         XCTAssertEqual(settings.providerSettings.searchEndpoint, ProviderSettings.defaultSearchEndpoint)
     }
 
+    /// Missing means a pre-page-reading install and keeps the documented default. A
+    /// value this build does not understand is different: fetching directly would turn
+    /// a future proxy mode into an undisclosed connection from the user's own address.
+    func testAnUnknownStoredPageReadingModeFailsClosed() {
+        XCTAssertEqual(preferences().providerSettings.pageReading, .direct)
+        XCTAssertEqual(preferences(["pageReading": "reader"]).providerSettings.pageReading,
+                       .reader)
+        XCTAssertEqual(preferences(["pageReading": "future-proxy"]).providerSettings.pageReading,
+                       .off)
+        XCTAssertEqual(preferences(["pageReading": 7]).providerSettings.pageReading, .off)
+        // Every mode this build knows survives the scalar store unchanged.
+        for mode in PageReadingMode.allCases {
+            XCTAssertEqual(preferences(["pageReading": mode.rawValue])
+                .providerSettings.pageReading, mode)
+        }
+    }
+
     func testChangesAreAnnounced() {
         let settings = preferences()
         var announcements = 0

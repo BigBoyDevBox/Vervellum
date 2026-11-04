@@ -237,6 +237,17 @@ enum PageReadingMode: String, Codable, CaseIterable, Identifiable, Equatable {
 
     var id: String { rawValue }
 
+    /// The historical default applied only when no durable setting exists.
+    static let defaultMode: PageReadingMode = .direct
+
+    /// Reads a durable setting without turning a future privacy mode into a direct
+    /// request. Absence is the old-build/fresh-install case and keeps the historical
+    /// default; a value that is present but unknown fails closed to snippets only.
+    static func persisted(_ rawValue: String?, isPresent: Bool) -> PageReadingMode {
+        guard isPresent else { return defaultMode }
+        return rawValue.flatMap(PageReadingMode.init(rawValue:)) ?? .off
+    }
+
     var label: String {
         switch self {
         case .off: return "Snippets only"
@@ -862,8 +873,9 @@ struct ProviderSettings: Equatable, Codable {
         // `.unknown` notice comment records as having emptied a library once already.
         modelFallback = ((try? container.decodeIfPresent(Bool.self, forKey: .modelFallback)) ?? nil)
             ?? Self.defaultModelFallback
-        let rawMode = (try? container.decodeIfPresent(String.self, forKey: .pageReading)) ?? nil
-        pageReading = rawMode.flatMap { PageReadingMode(rawValue: $0) } ?? .direct
+        let hasMode = container.contains(.pageReading)
+        let rawMode = hasMode ? try? container.decode(String.self, forKey: .pageReading) : nil
+        pageReading = PageReadingMode.persisted(rawMode, isPresent: hasMode)
         readerEndpoint = try container.decodeIfPresent(String.self, forKey: .readerEndpoint)
             ?? Self.defaultReaderEndpoint
     }
