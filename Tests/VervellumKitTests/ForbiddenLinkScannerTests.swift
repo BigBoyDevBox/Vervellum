@@ -68,11 +68,11 @@ final class ForbiddenLinkScannerTests: XCTestCase {
             "例子.中国",
             "service.localhost",
             "www.evil.host",
-            "evil.photography",
+            "evil.photography/path",
             "evil.unlisted/path",
             "EVIL.COM",
             "com.evil.com",
-            "evil.id",
+            "www.evil.id",
         ]
         for example in examples {
             XCTAssertFalse(ForbiddenLinkScanner.links(in: example).isEmpty, example)
@@ -86,6 +86,10 @@ final class ForbiddenLinkScannerTests: XCTestCase {
             "config.prod.json", "docs/README.md", "main.swift", "build.sh",
             "Vervellum.app", "movie.mov",
             "Foundation.URL", "os.Logger", "ASP.NET", "VB.NET", "ADO.NET",
+            // Member access whose last label happens to be a delegated TLD: without a
+            // path, port or `www.`, these read as code, not destinations.
+            "request.data", "array.map", "model.fit(x)", "obj.property", "this.is",
+            "cache.host", "self.app.run()", "evil.photography", "user.id",
             "tool@1.2.34", "user@localhost",
             "// comment", "//TODO", "/usr/local/bin",
             "[1:2]", "[a:b]", "//[1:2]", "[1][2]", "[term][case]",

@@ -491,7 +491,22 @@ enum ForbiddenLinkScanner {
             return true
         }
         guard !fileExtensions.contains(suffix) else { return false }
-        return TopLevelDomain.contains(suffix) || reservedTopLevelDomains.contains(suffix)
+        // A non-ASCII host (`例子.中国`) is a domain spelling, never code, so the whole
+        // IANA snapshot applies to it.
+        if withoutPort.unicodeScalars.contains(where: { !$0.isASCII }) {
+            return TopLevelDomain.contains(suffix)
+        }
+        // Without a path, a port or `www.`, a delegated suffix alone is too weak a signal:
+        // `.data`, `.map`, `.fit`, `.is` and `.property` are real TLDs and also the
+        // member access of every code answer. Flagging them would warn about links the
+        // model never wrote and discard a correct revision whole — the worst outcome
+        // for this check. A bare host therefore needs a suffix that reads as a
+        // destination on its own: a high-confidence generic one, a delegated two-letter
+        // country code that is not a common code word, or a reserved name.
+        return genericTLDs.contains(suffix)
+            || (suffix.count == 2 && TopLevelDomain.contains(suffix)
+                && !ambiguousCodeSuffixes.contains(suffix))
+            || reservedTopLevelDomains.contains(suffix)
     }
 
     /// Common file suffixes that are domain-like in prose. Several are also delegated
@@ -513,6 +528,22 @@ enum ForbiddenLinkScanner {
     /// are not delegated, but they still name a destination a reader could resolve.
     private static let reservedTopLevelDomains: Set<String> = [
         "example", "invalid", "localhost", "test",
+    ]
+
+    /// Two-letter country codes that are also everyday code words (`x.is`, `user.id`).
+    private static let ambiguousCodeSuffixes: Set<String> = ["as", "do", "id", "if", "in", "is", "to"]
+
+    /// High-confidence suffixes that make a bare host destination-like on their own.
+    /// Any other delegated suffix still counts with a path, a port, `www.` or a
+    /// non-ASCII host; common file suffixes stay suppressed without that signal.
+    private static let genericTLDs: Set<String> = [
+        "academy", "aero", "agency", "ai", "app", "art", "biz", "blog", "cat", "center",
+        "cloud", "co", "com", "company", "coop", "dev", "digital", "edu", "email", "game",
+        "global", "gov", "group", "info", "int", "io", "jobs", "life", "link", "live", "me",
+        "media", "mil", "mobi", "mov", "museum", "name", "net", "network", "news", "one",
+        "online", "org", "page", "pro", "services", "shop", "site", "social", "solutions",
+        "space", "store", "studio", "support", "systems", "tech", "today", "travel", "tv",
+        "website", "world", "xyz",
     ]
 
     /// These case-sensitive tokens are product/framework names, not destinations.
