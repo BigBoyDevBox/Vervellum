@@ -186,6 +186,36 @@ final class AttachmentIntakeTests: XCTestCase {
         XCTAssertTrue(outcome.refusals[0].contains("MB"), outcome.refusals[0])
     }
 
+    /// A directory entry is only a snapshot. If a file grows or is replaced after that
+    /// snapshot, the read itself must still have a ceiling rather than trusting the stale
+    /// size and allocating the whole replacement.
+    func testAFileThatOutgrowsItsReportedSizeIsReadWithABound() throws {
+        let url = try write(Data(repeating: 0x41, count: Attachment.maxAttachmentBytes + 1),
+                            named: "growing.log")
+        let manager = MisreportedSize()
+
+        let outcome = AttachmentIntake.read(files: [url], fileManager: manager)
+
+        XCTAssertTrue(outcome.accepted.isEmpty)
+        XCTAssertEqual(outcome.refusals.count, 1)
+        XCTAssertTrue(outcome.refusals[0].contains("growing.log"), outcome.refusals[0])
+        XCTAssertFalse(manager.usedUnboundedRead,
+                       "the post-metadata read must enforce its own byte ceiling")
+    }
+
+    private final class MisreportedSize: FileManager {
+        private(set) var usedUnboundedRead = false
+
+        override func attributesOfItem(atPath path: String) throws -> [FileAttributeKey: Any] {
+            [.type: FileAttributeType.typeRegular, .size: NSNumber(value: 1)]
+        }
+
+        override func contents(atPath path: String) -> Data? {
+            usedUnboundedRead = true
+            return super.contents(atPath: path)
+        }
+    }
+
     /// A file whose directory entry says four gigabytes is refused by that entry, and
     /// its bytes are never asked for.
     ///

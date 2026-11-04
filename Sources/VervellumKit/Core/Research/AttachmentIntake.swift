@@ -168,7 +168,8 @@ enum AttachmentIntake {
                     .tooLarge(name: Attachment.displayName(for: name), byteCount: size).message)
                 continue
             }
-            guard let data = fileManager.contents(atPath: path) else {
+            guard let data = try? readBoundedFile(atPath: path,
+                                                 maximumBytes: Attachment.maxAttachmentBytes) else {
                 result.refusals.append(unreadableMessage(name))
                 continue
             }
@@ -185,6 +186,25 @@ enum AttachmentIntake {
         }
         result.refusals += decided.refusals
         return result
+    }
+
+    /// Reads one byte beyond the attachment ceiling, which is enough for the ordinary
+    /// validation path to distinguish "fits" from "too large" without ever allocating
+    /// the rest of a file that grew or was replaced after its directory entry was read.
+    /// A regular-file read can legally be short before EOF, so reaching the ceiling is a
+    /// loop rather than one `read(upToCount:)` call.
+    private static func readBoundedFile(atPath path: String, maximumBytes: Int) throws -> Data {
+        let handle = try FileHandle(forReadingFrom: URL(fileURLWithPath: path))
+        defer { try? handle.close() }
+
+        var data = Data()
+        let ceiling = maximumBytes + 1
+        while data.count < ceiling {
+            guard let chunk = try handle.read(upToCount: ceiling - data.count),
+                  !chunk.isEmpty else { break }
+            data.append(chunk)
+        }
+        return data
     }
 
     /// Said by a front end when a gesture brought more than the question can carry, and
