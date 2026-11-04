@@ -173,6 +173,20 @@ final class EvidenceExtractorTests: XCTestCase {
         XCTAssertTrue(sources[1].snippet.contains("1961"))
     }
 
+    /// Prose backends use the same parenthesized Wikipedia paths as structured ones.
+    /// The closing parenthesis is part of this address, not punctuation around it.
+    func testKeepsParenthesesInAProseURL() {
+        let planet = "https://en.wikipedia.org/wiki/Mercury_(planet)"
+        let prose = "Mercury (planet)\n\(planet)\nThe smallest planet in the Solar System."
+        let payload: [String: Any] = ["content": [["type": "text", "text": prose]]]
+
+        let source = EvidenceExtractor.sources(from: [payload]).first
+
+        XCTAssertEqual(source?.url, planet)
+        XCTAssertFalse(source?.snippet.contains("https://") ?? true,
+                       "the complete repaired address should be removed from the snippet")
+    }
+
     /// A list with no blank lines between entries still yields one hit per link.
     func testSplitsADenseProseListPerLink() {
         let prose = "Result A https://a.example.com/1 summary a\nResult B https://b.example.com/2 summary b"
