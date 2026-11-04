@@ -225,6 +225,63 @@ final class ThreadArchiveTests: XCTestCase {
         XCTAssertTrue(archive.isReadOnly)
         XCTAssertNil(archive.readFailure,
                       "read-only has its own message; a read failure here would be a second one")
+        var thread = ResearchThread()
+        var turn = ResearchTurn(question: "Q")
+        turn.stage = .complete
+        turn.answer = "A"
+        thread.turns = [turn]
+        archive.save(thread)
+        archive.flush()
+        XCTAssertEqual(try String(contentsOf: fileURL, encoding: .utf8),
+                       #"{"version": 99, "threads": []}"#,
+                       "a newer-version document must survive untouched too")
+    }
+
+    /// The refusal has to end with the file it was protecting. Launching with history
+    /// off erases in `init` — deletion does not need a decode, so an unreadable
+    /// document is no barrier — and once those bytes are gone the empty library is a
+    /// true picture of what is stored. Left standing, the flags would do the two
+    /// things they exist to prevent: Settings would keep warning about a file that
+    /// is gone, and turning history back on would save nothing until relaunch.
+    func testErasingAnUnreadableDocumentLiftsTheReadRefusal() throws {
+        try Data("{ this is not json".utf8).write(to: fileURL)
+        let archive = ThreadArchive(fileURL: fileURL, historyEnabled: false, debounce: 0)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: fileURL.path),
+                       "history off erases even a document it cannot read")
+        XCTAssertNil(archive.eraseFailure)
+        XCTAssertNil(archive.readFailure,
+                     "the file it named is gone; the warning must not outlive it")
+        XCTAssertTrue(archive.libraryIsTrustworthy,
+                      "an empty library beside no file is a true picture")
+
+        archive.isHistoryEnabled = true
+        archive.save(thread("after the erase"))
+        archive.flush()
+        XCTAssertEqual(ThreadArchive(fileURL: fileURL, debounce: 0).library.threads.map(\.title),
+                       ["after the erase"],
+                       "turning history back on must be able to save without a relaunch")
+    }
+
+    /// The same refusal lifted at the toggle rather than at launch: an unreadable
+    /// document under a running archive blocks every save, turning history off
+    /// deletes the file, and the state that described it has to go with it — or the
+    /// toggle back on claims to record while writing nothing.
+    func testTogglingHistoryOffAnUnreadableDocumentLiftsTheReadRefusal() throws {
+        try Data("{ this is not json".utf8).write(to: fileURL)
+        let archive = ThreadArchive(fileURL: fileURL, debounce: 0)
+        XCTAssertNotNil(archive.readFailure)
+        XCTAssertFalse(archive.libraryIsTrustworthy)
+
+        archive.isHistoryEnabled = false
+        XCTAssertFalse(FileManager.default.fileExists(atPath: fileURL.path))
+        XCTAssertNil(archive.readFailure)
+        XCTAssertTrue(archive.libraryIsTrustworthy)
+
+        archive.isHistoryEnabled = true
+        archive.save(thread("fresh start"))
+        archive.flush()
+        XCTAssertEqual(ThreadArchive(fileURL: fileURL, debounce: 0).library.threads.map(\.title),
+                       ["fresh start"])
     }
 
     /// A newer build's document must never vouch for a sweep, and nothing in the flag's

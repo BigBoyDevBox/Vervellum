@@ -50,7 +50,13 @@ final class ThreadArchive {
     /// flag vouching for a picture it does not have. Gating this on `historyEnabled`
     /// would undo it: the sweep is the only thing that clears attachment bytes when the
     /// app launches with history already off.
-    let libraryIsTrustworthy: Bool
+    ///
+    /// Set in `init` and afterwards only on `queue`, where `eraseEverything` marks it
+    /// true again once the unreadable document is really gone: the emptied library is
+    /// then a true picture of what is stored, which is nothing. That is the confinement
+    /// `primaryIsTrustworthy` already uses, and it is what lets a "history off, then on
+    /// again" cycle save again rather than refuse for the rest of the session.
+    private(set) var libraryIsTrustworthy: Bool
 
     /// Why the stored document could not be read, in words fit for the interface; nil
     /// when there was nothing to read, when it read fine, or when the document is merely
@@ -60,7 +66,10 @@ final class ThreadArchive {
     /// anywhere says so, and the first save silently replaces the bytes — the user's
     /// only copy of conversations a repair could have recovered. Settings shows this
     /// beside the erase failure, and no write is attempted while it stands.
-    let readFailure: String?
+    ///
+    /// A warning that outlives its condition tells a lie, so `eraseEverything` clears
+    /// it beside `libraryIsTrustworthy` once the file it describes is gone.
+    private(set) var readFailure: String?
 
     /// Why the last erase left the file in place, in words fit for the interface; nil
     /// once an erase succeeds. "History off means the bytes are gone" is a promise
@@ -257,6 +266,20 @@ final class ThreadArchive {
             pendingSnapshot = nil
             for url in [fileURL, backupURL] where fileManager.fileExists(atPath: url.path) {
                 do { try fileManager.removeItem(at: url) } catch { failure = error }
+            }
+            if failure == nil {
+                // The document a read failure described no longer exists, so the
+                // refusal it caused has to end with it. Every caller empties the
+                // library before this runs, so it is again a true picture of what is
+                // stored — nothing — and the next save may proceed. Left standing,
+                // `readFailure` would keep reporting a file that is gone and
+                // `libraryIsTrustworthy` would keep refusing every write, which is
+                // how toggling history off and back on used to persist nothing until
+                // relaunch. Mutated here, on `queue`, beside `primaryIsTrustworthy`:
+                // `writeNow` reads the flag on this same queue, so confining the
+                // write to it is what keeps the flag race-free.
+                readFailure = nil
+                libraryIsTrustworthy = true
             }
         }
         // Reported, not swallowed. "History off means the bytes are gone" is a promise
