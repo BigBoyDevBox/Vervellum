@@ -274,6 +274,16 @@ final class ProviderSettingsTests: XCTestCase {
         XCTAssertNil(ProviderSettings.decodeModelProfiles(""))
     }
 
+    /// A nonempty array where not one row can be read is damaged, not a deliberate
+    /// request for no providers. Preserve the pre-salvage nil result so callers can use
+    /// the legacy single-provider mirror; an actually empty array remains readable.
+    func testAProfileListWhereNothingSurvivesFallsBackAsUnreadable() {
+        XCTAssertNil(ProviderSettings.decodeModelProfiles("[17, true]"))
+        XCTAssertNil(ProviderSettings.decodeSearchProfiles("[17, true]"))
+        XCTAssertEqual(ProviderSettings.decodeModelProfiles("[]"), [])
+        XCTAssertEqual(ProviderSettings.decodeSearchProfiles("[]"), [])
+    }
+
     /// A field added later must not make an existing settings file unreadable — the
     /// recovery from that is a user re-pasting every endpoint they had configured.
     func testAProfileMissingFieldsStillDecodes() {
@@ -283,6 +293,69 @@ final class ProviderSettingsTests: XCTestCase {
         XCTAssertEqual(decoded?.first?.endpoint, "https://a.example.com/v1")
         XCTAssertFalse(decoded?.first?.keyAccount.isEmpty ?? true,
                        "A profile with no recorded account still gets one")
+    }
+
+    /// Lenient means present-but-wrong-typed too, and one non-object element must cost
+    /// only itself. Otherwise one damaged row makes CorePreferences abandon the whole
+    /// list and expose only the legacy single-provider mirror.
+    func testMalformedModelProfileFieldsDoNotDiscardTheirNeighbours() throws {
+        let valid = ModelProfile.new(name: "Kept", endpoint: "https://kept.example/v1",
+                                     model: "kept")
+        let encodedValid = try XCTUnwrap(ProviderSettings.encodeModelProfiles([valid]))
+        let validObject = String(encodedValid.dropFirst().dropLast())
+        let damaged = """
+            [17, {
+              "id": 42,
+              "name": false,
+              "endpoint": ["wrong shape"],
+              "model": 7,
+              "keyAccount": {},
+              "sendsImages": "yes"
+            }, \(validObject)]
+            """
+
+        let decoded = try XCTUnwrap(ProviderSettings.decodeModelProfiles(damaged))
+        XCTAssertEqual(decoded.count, 2, "only the non-object entry is dropped")
+        XCTAssertEqual(decoded[0].name, "")
+        XCTAssertEqual(decoded[0].endpoint, "")
+        XCTAssertEqual(decoded[0].model, "")
+        XCTAssertTrue(decoded[0].sendsImages)
+        XCTAssertFalse(decoded[0].keyAccount.isEmpty)
+        XCTAssertEqual(decoded[1], valid)
+
+        let document = "{\"modelProfiles\":\(damaged),\"searchProfiles\":[]}"
+        let whole = try JSONDecoder().decode(ProviderSettings.self, from: Data(document.utf8))
+        XCTAssertEqual(whole.modelProfiles.count, 2,
+                       "the whole-settings Codable path contains the same bad element")
+        XCTAssertEqual(whole.modelProfiles.last, valid)
+    }
+
+    /// A damaged sibling field defaults on its own; the profile keeps its identity, so
+    /// its derived keychain account (and therefore its key) survives. From #167.
+    func testACorruptSiblingFieldKeepsTheProfileIdentity() throws {
+        let id = UUID()
+        let listing = #"[{"id":"\#(id.uuidString)","name":false,"endpoint":"https://kept.example/v1","model":"kept"}]"#
+
+        let decoded = try XCTUnwrap(ProviderSettings.decodeModelProfiles(listing))
+
+        XCTAssertEqual(decoded.count, 1)
+        XCTAssertEqual(decoded[0].id, id)
+        XCTAssertEqual(decoded[0].name, "")
+        XCTAssertEqual(decoded[0].endpoint, "https://kept.example/v1")
+        XCTAssertEqual(decoded[0].model, "kept")
+        XCTAssertTrue(decoded[0].sendsImages)
+        XCTAssertEqual(decoded[0].keyAccount,
+                       SecretAccount.derived(from: .modelAPIKey, for: id).rawValue)
+    }
+
+    /// A kind that is present but not a string is as unknown as an unrecognised name:
+    /// inert, never MCP. Only an absent kind keeps the original MCP default.
+    func testANonStringSearchKindIsInertNotMCP() throws {
+        let listing = #"[{"name":"Odd","kind":7,"endpoint":"https://odd.example"},{"name":"Old","endpoint":"https://old.example"}]"#
+        let decoded = try XCTUnwrap(ProviderSettings.decodeSearchProfiles(listing))
+        XCTAssertEqual(decoded.count, 2)
+        XCTAssertEqual(decoded[0].kind, .unsupported(""))
+        XCTAssertEqual(decoded[1].kind, .mcp)
     }
 
     /// A profile is never listed as a blank row.
@@ -399,6 +472,36 @@ final class ProviderSettingsTests: XCTestCase {
         ]
         let encoded = try XCTUnwrap(ProviderSettings.encodeSearchProfiles(profiles))
         XCTAssertEqual(ProviderSettings.decodeSearchProfiles(encoded), profiles)
+    }
+
+    func testMalformedSearchProfileFieldsDoNotDiscardTheirNeighbours() throws {
+        let valid = SearchProfile.new(name: "Kept", kind: .searxng,
+                                      endpoint: "https://kept.example")
+        let encodedValid = try XCTUnwrap(ProviderSettings.encodeSearchProfiles([valid]))
+        let validObject = String(encodedValid.dropFirst().dropLast())
+        let damaged = """
+            [true, {
+              "id": [],
+              "name": 12,
+              "kind": "searxng",
+              "endpoint": false,
+              "keyAccount": 99
+            }, \(validObject)]
+            """
+
+        let decoded = try XCTUnwrap(ProviderSettings.decodeSearchProfiles(damaged))
+        XCTAssertEqual(decoded.count, 2, "only the non-object entry is dropped")
+        XCTAssertEqual(decoded[0].name, "")
+        XCTAssertEqual(decoded[0].kind, .searxng)
+        XCTAssertEqual(decoded[0].endpoint, "")
+        XCTAssertFalse(decoded[0].keyAccount.isEmpty)
+        XCTAssertEqual(decoded[1], valid)
+
+        let document = "{\"modelProfiles\":[],\"searchProfiles\":\(damaged)}"
+        let whole = try JSONDecoder().decode(ProviderSettings.self, from: Data(document.utf8))
+        XCTAssertEqual(whole.searchProfiles.count, 2,
+                       "the whole-settings Codable path contains the same bad element")
+        XCTAssertEqual(whole.searchProfiles.last, valid)
     }
 
     /// A settings file written by a newer build must keep its provider row without
