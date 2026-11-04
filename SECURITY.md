@@ -13,8 +13,12 @@ contact channel.
 
 ## Security boundary
 
-Vervellum sends user text to two third-party endpoints and renders content retrieved
-from the open web. Those are the two boundaries, and they are treated separately.
+Vervellum can send user text to configured model providers, planned queries to
+configured search providers, and page URLs to a configured reader service. With
+direct page reading it also makes credential-free requests to hosts found in pasted
+links and search results. Model fallback and deeper research can reach more than one
+configured provider during a turn. Provider requests and untrusted open-web content
+are separate boundaries and are treated separately below.
 
 ### Credentials
 
@@ -70,9 +74,11 @@ Shared masking prevents raw placeholder characters from relocating real citation
 These controls establish link provenance, not whether a source supports a claim.
 
 Retrieved text is never executed and never rendered as HTML. It is *read*: with page
-reading on — the default — Vervellum fetches up to three of the pages the search
-returned and extracts their text, which raises the evidential value of a citation and
-adds one thing to reason about, so both are stated here rather than only the first.
+reading on — the default — One pass fetches up to three pages, while Deep rounds and
+Agent loop share a limit of eight across links pasted in the question and pages found
+through search. Vervellum extracts their text, which raises the evidential value of a
+citation and adds one thing to reason about, so both are stated here rather than only
+the first.
 
 Those requests are the only ones Vervellum makes to a host the user did not configure,
 and they are built to have nothing worth stealing:
