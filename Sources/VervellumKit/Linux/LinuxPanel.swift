@@ -615,7 +615,7 @@ final class LinuxPanel {
         }
         if !turn.answer.isEmpty {
             let answer = GTK.markupLabel(PangoMarkup.answer(turn.answer, sources: turn.sources))
-            GTK.onLinkActivated(answer, handleLink)
+            GTK.onLinkActivated(answer) { [weak self] in self?.handleLink($0) ?? true }
             GTK.append(box, answer)
         }
         if let findings = PangoMarkup.findings(turn.findings) {
@@ -630,13 +630,13 @@ final class LinuxPanel {
             let cited = Set(turn.citedSources(using: validation).map(\.number))
             if let markup = PangoMarkup.sources(turn.sources, cited: cited) {
                 let label = GTK.markupLabel(markup)
-                GTK.onLinkActivated(label, handleLink)
+                GTK.onLinkActivated(label) { [weak self] in self?.handleLink($0) ?? true }
                 GTK.append(box, label)
             }
         }
         if let followups = PangoMarkup.followups(turn.followups) {
             let label = GTK.markupLabel(followups)
-            GTK.onLinkActivated(label, handleLink)
+            GTK.onLinkActivated(label) { [weak self] in self?.handleLink($0) ?? true }
             GTK.append(box, label)
         }
         return box

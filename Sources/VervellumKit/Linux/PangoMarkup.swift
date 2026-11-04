@@ -367,7 +367,9 @@ enum PangoMarkup {
     /// A follow-up as a link whose target is the question itself, percent-encoded —
     /// a space, a quote or a newline in a question must not end the href.
     static func askLink(_ question: String) -> String {
-        askScheme + question.addingPercentEncoding(withAllowedCharacters: .alphanumerics)!
+        // Encoding against `.alphanumerics` cannot fail for a Swift `String` (it holds no
+        // lone surrogates), but an empty question is the safe answer if it ever did.
+        askScheme + (question.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? "")
     }
 
     static func followups(_ followups: [String]) -> String? {
