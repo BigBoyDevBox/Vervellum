@@ -401,14 +401,50 @@ final class ProviderSettingsTests: XCTestCase {
         XCTAssertEqual(ProviderSettings.decodeSearchProfiles(encoded), profiles)
     }
 
-    /// A settings file written by a build that knows more backends must not cost the
-    /// user every provider in it.
-    func testAnUnknownSearchKindReadsAsMCPRatherThanFailingTheList() {
+    /// A settings file written by a newer build must keep its provider row without
+    /// silently treating that provider as MCP. Coercion could send its endpoint and key
+    /// through a protocol the user never selected, while losing the original spelling
+    /// on the next save would make a later upgrade unable to recover it.
+    func testAnUnknownSearchKindIsPreservedButCannotRun() throws {
         let listing = #"[{"name":"Future","kind":"quantum","endpoint":"https://x.example.org"}]"#
-        let decoded = ProviderSettings.decodeSearchProfiles(listing)
-        XCTAssertEqual(decoded?.count, 1)
-        XCTAssertEqual(decoded?.first?.kind, .mcp)
-        XCTAssertEqual(decoded?.first?.name, "Future")
+        let decoded = try XCTUnwrap(ProviderSettings.decodeSearchProfiles(listing))
+        let profile = try XCTUnwrap(decoded.first)
+        XCTAssertEqual(decoded.count, 1)
+        XCTAssertEqual(profile.kind, .unsupported("quantum"))
+        XCTAssertEqual(profile.kind.rawValue, "quantum")
+        XCTAssertEqual(profile.kind.label, "quantum (unsupported)")
+        XCTAssertEqual(profile.name, "Future")
+        XCTAssertEqual(SearchProviderKind.unsupported("future\n\u{202E}kind").label,
+                       "future kind (unsupported)",
+                       "a stored spelling cannot add rows or reorder the settings UI")
+
+        let reencoded = try XCTUnwrap(ProviderSettings.encodeSearchProfiles(decoded))
+        XCTAssertTrue(reencoded.contains(#""kind":"quantum""#), reencoded)
+        XCTAssertEqual(ProviderSettings.decodeSearchProfiles(reencoded), decoded)
+        XCTAssertFalse(SearchProviderKind.allCases.contains(profile.kind))
+
+        var settings = ProviderSettings(modelEndpoint: "https://model.example/v1",
+                                        modelName: "model")
+        settings.searchProfiles = decoded
+        settings.selectedSearchID = profile.id
+        XCTAssertEqual(settings.problems(hasModelKey: true, hasSearchKey: true), [
+            "The selected search provider type is not supported by this version. "
+                + "Choose a supported provider in Settings.",
+        ])
+        XCTAssertTrue(settings.problems(hasModelKey: true, hasSearchKey: true,
+                                        requiresSearch: false).isEmpty)
+
+        let commandRunner = StubCommandRunner { _ in .unrouted }
+        let testCredential = UUID().uuidString
+        XCTAssertThrowsError(try SearchBackendFactory.make(
+            profile: profile, apiKey: testCredential,
+            trace: ResearchTrace(sink: SilentLog()), commandRunner: commandRunner))
+        XCTAssertTrue(commandRunner.resolved.isEmpty)
+
+        settings.searchProfiles[0].kind = .searxng
+        let replaced = try XCTUnwrap(ProviderSettings.encodeSearchProfiles(settings.searchProfiles))
+        XCTAssertTrue(replaced.contains(#""kind":"searxng""#), replaced)
+        XCTAssertFalse(replaced.contains("quantum"), replaced)
     }
 
     /// The backends are told apart by protocol, not by guessing from the address.
