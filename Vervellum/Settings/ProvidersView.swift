@@ -654,8 +654,9 @@ struct ProvidersView: View {
         // request and still not prove the key works for the model that was named.
         // Only the selected provider is checked, which is what `problems` validates —
         // a second one the user is halfway through configuring is not an error yet.
-        let problems = saved.problems(hasModelKey: keychain.hasModelKey(for: saved),
-                                      hasSearchKey: keychain.hasSearchKey(for: saved))
+        let problems = ProviderReadiness.problems(settings: saved,
+                                                  level: preferences.researchLevel,
+                                                  secrets: keychain)
         statusIsProblem = !problems.isEmpty
         status = problems.isEmpty ? "Saved." : problems.joined(separator: " ")
     }

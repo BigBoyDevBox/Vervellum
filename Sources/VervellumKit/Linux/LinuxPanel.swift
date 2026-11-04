@@ -185,6 +185,7 @@ final class LinuxPanel {
                 guard let self else { return }
                 self.environment.preferences.researchLevel = level
                 self.markSelectedLevel()
+                if self.active.thread.turns.isEmpty { self.render() }
             }
             GTK.addStyle(button, "level")
             GTK.append(levelBox, button)
@@ -652,15 +653,16 @@ final class LinuxPanel {
 
     private static func emptyStateMarkup(environment: LinuxEnvironment) -> String {
         let settings = environment.preferences.providerSettings
-        let problems = settings.problems(
-            hasModelKey: environment.secrets.hasModelKey(for: settings),
-            hasSearchKey: environment.secrets.hasSearchKey(for: settings))
+        let level = environment.preferences.researchLevel
+        let problems = ProviderReadiness.problems(settings: settings,
+                                                  level: level,
+                                                  secrets: environment.secrets)
         guard problems.isEmpty else {
             return "<span weight=\"bold\">Not configured yet</span>\n\n"
                 + GTK.escape(problems.joined(separator: " ")) + "\n\n"
-                + GTK.escape("Edit ~/.config/vervellum/settings.json, then store your keys "
-                             + "with secret-tool or export VERVELLUM_MODEL_KEY and "
-                             + "VERVELLUM_SEARCH_KEY. Keys are read from "
+                + GTK.escape("Edit ~/.config/vervellum/settings.json to resolve the items above. "
+                             + "When a configured provider needs a key, store it with secret-tool "
+                             + "or export VERVELLUM_MODEL_KEY / VERVELLUM_SEARCH_KEY. Keys are read from "
                              + environment.secrets.backendDescription + ".")
         }
         // The hint follows the preference; a hint that says the opposite of what Return
@@ -669,10 +671,13 @@ final class LinuxPanel {
         let keys = environment.preferences.submitOnReturn
             ? "Return asks · Shift-Return adds a line"
             : "Return adds a line · Ctrl-Return asks"
+        let introduction = level.searches
+            ? "Vervellum plans web searches, runs them, then writes an answer that cites "
+                + "only what it found — and grades its own claims against that evidence."
+            : "No search sends the question only to the selected model. It does not "
+                + "search, cite sources, or run the evidence assessment."
         return "<span weight=\"bold\">Ask a question.</span>\n\n"
-            + GTK.escape("Vervellum plans web searches, runs them, then writes an answer that "
-                         + "cites only what it found — and grades its own claims against that "
-                         + "evidence.")
+            + GTK.escape(introduction)
             + "\n\n<span size=\"small\">"
             + GTK.escape(keys + " · Ctrl-Return always asks · Esc clears, then closes · "
                          + "/ for commands")
