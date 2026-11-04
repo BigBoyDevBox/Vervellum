@@ -454,6 +454,26 @@ final class ProviderSettingsTests: XCTestCase {
         XCTAssertTrue(salvaged.modelFallback)
     }
 
+    /// An absent mode predates page reading and retains its old default. A mode written
+    /// by a newer build, or a damaged value, must not unexpectedly expose direct page
+    /// requests when this build cannot honour what the user selected.
+    func testUnknownDecodedPageReadingModesFailClosed() throws {
+        let before = #"{"modelProfiles":[],"searchProfiles":[]}"#
+        XCTAssertEqual(try JSONDecoder().decode(ProviderSettings.self,
+                                                from: Data(before.utf8)).pageReading,
+                       .direct)
+
+        let future = #"{"modelProfiles":[],"searchProfiles":[],"pageReading":"future-proxy"}"#
+        XCTAssertEqual(try JSONDecoder().decode(ProviderSettings.self,
+                                                from: Data(future.utf8)).pageReading,
+                       .off)
+
+        let damaged = #"{"modelProfiles":[],"searchProfiles":[],"pageReading":7}"#
+        XCTAssertEqual(try JSONDecoder().decode(ProviderSettings.self,
+                                                from: Data(damaged.utf8)).pageReading,
+                       .off)
+    }
+
     func testFallbackOffLeavesOnlyTheSelection() {
         let alpha = chainProfile("alpha")
         let beta = chainProfile("beta")

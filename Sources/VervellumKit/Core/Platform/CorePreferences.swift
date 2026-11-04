@@ -180,6 +180,7 @@ final class CorePreferences {
     private func readProviderSettings() -> ProviderSettings {
         // Assembled half by half: a settings file can have a model list and no search
         // list (an upgrade in between), and each half migrates on its own.
+        let rawPageReading = store.string(for: Key.pageReading)
         var settings = ProviderSettings(
             modelEndpoint: store.string(for: Key.modelEndpoint) ?? Default.modelEndpoint,
             modelName: store.string(for: Key.modelName) ?? Default.modelName,
@@ -187,8 +188,8 @@ final class CorePreferences {
             searchKind: store.string(for: Key.searchProvider)
                 .flatMap { SearchProviderKind(rawValue: $0) } ?? .mcp,
             modelFallback: store.bool(for: Key.modelFallback) ?? Default.modelFallback,
-            pageReading: store.string(for: Key.pageReading)
-                .flatMap { PageReadingMode(rawValue: $0) } ?? Default.pageReading,
+            pageReading: PageReadingMode.persisted(rawPageReading,
+                                                   isPresent: rawPageReading != nil),
             readerEndpoint: store.string(for: Key.readerEndpoint) ?? Default.readerEndpoint)
 
         if let encoded = store.string(for: Key.modelProviders),
