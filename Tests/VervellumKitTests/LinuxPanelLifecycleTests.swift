@@ -15,8 +15,8 @@ final class LinuxPanelLifecycleTests: XCTestCase {
 
         XCTAssertEqual(String(cString: gtk_button_get_label(vv_button(button))), "✕",
                        "the compact visual treatment should stay unchanged")
-        XCTAssertNotEqual(vv_test_accessible_label_matches(button,
-                                                            "Remove report.pdf attachment"), 0)
+        XCTAssertEqual(vv_test_accessible_label_matches(button, "Remove report.pdf attachment"), 1,
+                       "the ✕ button should announce which file it removes")
     }
 
     func testNativeCloseKeepsThePanelAvailableForTheShortcut() throws {

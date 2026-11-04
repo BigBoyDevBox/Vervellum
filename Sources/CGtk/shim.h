@@ -111,6 +111,8 @@ static inline int vv_test_accessible_label_matches(GtkWidget *widget,
     char *actual = gtk_test_accessible_check_property(
         GTK_ACCESSIBLE(widget), GTK_ACCESSIBLE_PROPERTY_LABEL, expected);
     if (actual == NULL) return 1;
+    /* GTK's own "expected X, got Y" text: the only clue to what the label was. */
+    g_printerr("vv_test_accessible_label_matches: %s\n", actual);
     g_free(actual);
     return 0;
 }
