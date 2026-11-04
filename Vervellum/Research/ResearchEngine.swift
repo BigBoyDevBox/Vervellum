@@ -51,6 +51,9 @@ final class ResearchEngine: ObservableObject {
     /// session is retained here — nothing else holds it — so removing one is also how
     /// `discardSession` guarantees a deleted thread's run really ends.
     private var sessions: [UUID: ResearchSession] = [:]
+    /// Queues a detached session could not run after its turn failed. They retain their
+    /// `PendingAttachment` bytes until that same thread is reactivated, or discarded.
+    private var returnedQueues: [UUID: [QueuedQuestion]] = [:]
     private var activeSession: ResearchSession
 
     /// Called whenever any session's thread changes, so the store can persist it.
@@ -58,15 +61,13 @@ final class ResearchEngine: ObservableObject {
     /// thread they will come back to.
     var onThreadChanged: ((ResearchThread) -> Void)?
 
-    /// Called with the *visible* session's returned questions — after a Stop, or after
-    /// a run that did not complete. The front end puts them back in the composer.
-    ///
-    /// A detached session's returned queue is deliberately dropped rather than saved
-    /// for later: the questions were follow-ups to a conversation that is not on
-    /// screen, and resurfacing them in a composer that is about a different thread is
-    /// worse than losing them. The questions are gone either way once their thread's
-    /// session is discarded.
-    var onQueueReturned: (([QueuedQuestion]) -> Void)?
+    /// Called with the active session's returned questions — after a Stop, or after a
+    /// run that did not complete. A detached session's questions are held for their
+    /// owning thread and delivered when it is reactivated, never into another thread's
+    /// composer.
+    var onQueueReturned: (([QueuedQuestion]) -> Void)? {
+        didSet { deliverReturnedQueue(for: activeSession) }
+    }
 
     init(thread: ResearchThread = ResearchThread(),
          preferences: CorePreferences,
@@ -129,6 +130,7 @@ final class ResearchEngine: ObservableObject {
     /// the run is cancelled *without* keeping its result and the session's callbacks
     /// are sealed. The archive's tombstone stops a late save; this stops the work.
     func discardSession(for id: UUID) {
+        returnedQueues.removeValue(forKey: id)
         guard let session = sessions[id] else { return }
         session.discard()
         sessions.removeValue(forKey: id)
@@ -144,6 +146,7 @@ final class ResearchEngine: ObservableObject {
     func discardAllSessions() {
         for session in sessions.values { session.discard() }
         sessions.removeAll()
+        returnedQueues.removeAll()
         activate(makeSession(thread: ResearchThread()))
         syncRunning()
     }
@@ -198,6 +201,7 @@ final class ResearchEngine: ObservableObject {
         queue = session.queue
         isRunning = session.isRunning
         syncRunning()
+        deliverReturnedQueue(for: session)
     }
 
     private func wire(_ session: ResearchSession) {
@@ -219,9 +223,22 @@ final class ResearchEngine: ObservableObject {
             self?.syncRunning()
         }
         session.onQueueReturned = { [weak self] session, questions in
-            guard let self, session === self.activeSession else { return }
-            self.onQueueReturned?(questions)
+            guard let self, !questions.isEmpty else { return }
+            self.returnedQueues[session.id, default: []].append(contentsOf: questions)
+            self.deliverReturnedQueue(for: session)
         }
+    }
+
+    /// Delivers once, and only to the composer whose thread owns these questions.
+    /// Remove before invoking the callback: the synchronous notification path can
+    /// re-enter the engine, and reactivation must not hand the same attachment back
+    /// twice.
+    private func deliverReturnedQueue(for session: ResearchSession) {
+        guard session === activeSession,
+              let callback = onQueueReturned,
+              let questions = returnedQueues[session.id], !questions.isEmpty else { return }
+        returnedQueues.removeValue(forKey: session.id)
+        callback(questions)
     }
 
     /// Recomputes the derived running state from the map. Called from every session

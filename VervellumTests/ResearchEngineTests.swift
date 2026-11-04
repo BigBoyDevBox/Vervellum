@@ -258,25 +258,66 @@ final class ResearchEngineTests: XCTestCase {
         XCTAssertFalse(engine.isRunning)
     }
 
-    /// A new thread puts the conversation away. Its follow-ups go with it rather than
-    /// reappearing in the composer over a thread they were not about.
-    func testANewThreadDropsTheQueueWithoutHandingItBack() {
+    /// A new thread puts the conversation away. Its failed follow-ups stay with that
+    /// conversation and return exactly once when it is opened again — never over the
+    /// unrelated thread now on screen.
+    func testADetachedFailedQueueReturnsOnceWhenItsThreadIsReopened() {
         let first = expectation(description: "Run started")
         let runner = ManualRunner(onStart: StartCounter([first]).record)
         let scheduler = ManualScheduler()
         let engine = makeEngine(runner: runner, scheduler: scheduler)
-        var returned: [String] = []
-        engine.onQueueReturned = { returned = $0.map(\.question) }
+        var returned: [[String]] = []
+        engine.onQueueReturned = { returned.append($0.map(\.question)) }
 
         engine.ask("Running")
         wait(for: [first], timeout: 3)
         engine.ask("Second")
+        engine.ask("Third")
+        let original = engine.thread
 
         engine.startNewThread()
+        let fresh = engine.thread
         XCTAssertTrue(engine.queue.isEmpty)
         XCTAssertTrue(returned.isEmpty)
 
-        runner.finish()
+        let delivered = expectation(description: "Detached failure delivered")
+        scheduler.expectDelivery { delivered.fulfill() }
+        runner.finish(stage: .failed)
+        wait(for: [delivered], timeout: 3)
         scheduler.drain()
+        XCTAssertTrue(returned.isEmpty, "nothing from another thread enters this composer")
+
+        engine.replaceThread(with: original)
+        XCTAssertEqual(returned, [["Second", "Third"]])
+        XCTAssertEqual(engine.thread.id, original.id)
+
+        engine.replaceThread(with: fresh)
+        engine.replaceThread(with: original)
+        XCTAssertEqual(returned.count, 1, "reactivation consumes the hand-back")
+    }
+
+    func testDiscardingAThreadDiscardsItsBufferedQueue() {
+        let first = expectation(description: "Run started")
+        let runner = ManualRunner(onStart: StartCounter([first]).record)
+        let scheduler = ManualScheduler()
+        let engine = makeEngine(runner: runner, scheduler: scheduler)
+        var returned: [[String]] = []
+        engine.onQueueReturned = { returned.append($0.map(\.question)) }
+
+        engine.ask("Running")
+        wait(for: [first], timeout: 3)
+        engine.ask("Waiting")
+        let original = engine.thread
+        engine.startNewThread()
+
+        let delivered = expectation(description: "Detached failure delivered")
+        scheduler.expectDelivery { delivered.fulfill() }
+        runner.finish(stage: .failed)
+        wait(for: [delivered], timeout: 3)
+        scheduler.drain()
+
+        engine.discardSession(for: original.id)
+        engine.replaceThread(with: original)
+        XCTAssertTrue(returned.isEmpty)
     }
 }

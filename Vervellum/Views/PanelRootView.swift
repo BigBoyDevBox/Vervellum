@@ -1171,6 +1171,10 @@ struct PanelRootView: View {
         notice = nil
         recallIndex = nil
         draft = ""
+        // Reactivation can synchronously return questions (and their in-memory bytes)
+        // from a failed detached run. Clear the old thread's attachments first, so the
+        // callback fills this composer rather than being erased after it returns.
+        attachments = []
         engine.replaceThread(with: thread)
     }
 
