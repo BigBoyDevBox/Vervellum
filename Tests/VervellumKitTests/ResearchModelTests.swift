@@ -65,6 +65,28 @@ final class ResearchModelTests: XCTestCase {
         XCTAssertFalse(library.search("stellarator").contains(thread))
     }
 
+    func testSearchMatchesFindingsLimitationsFollowupsAndSources() {
+        var turn = ResearchTurn(question: "What changed in the budget?")
+        turn.findings = [Finding(claim: "The deficit shrank", verdict: .supported,
+                                 reasoning: "Numbers agree", sourceNumbers: [1])]
+        turn.limitations = "Data covers the northern districts only"
+        turn.followups = ["How did the provinces vote?"]
+        turn.sources = [Source(number: 1, url: "https://example.com/fiscal-2029-report",
+                               title: "Fiscal outlook 2029", snippet: "")]
+        var thread = ResearchThread()
+        thread.turns = [turn]
+        var library = ThreadLibrary()
+        library.threads = [thread]
+
+        // Each field a reader might remember the thread by.
+        XCTAssertEqual(library.search("deficit shrank").count, 1)
+        XCTAssertEqual(library.search("northern districts").count, 1)
+        XCTAssertEqual(library.search("provinces vote").count, 1)
+        XCTAssertEqual(library.search("Fiscal outlook").count, 1)
+        XCTAssertEqual(library.search("example.com").count, 1)
+        XCTAssertEqual(library.search("fiscal-2029-report").count, 1)
+    }
+
     func testSearchBlankQueryReturnsEverythingTrimmedIsBlank() {
         var library = ThreadLibrary()
         library.threads = [ResearchThread()]
