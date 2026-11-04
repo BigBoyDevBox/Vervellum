@@ -459,6 +459,15 @@ enum GTK {
         return button
     }
 
+    /// A button whose face is a widget rather than a string — the history rows are one
+    /// big click target with two lines in them, which a string label cannot be.
+    static func button(content: Widget, _ action: @escaping () -> Void) -> Widget {
+        let button = gtk_button_new()!
+        gtk_button_set_child(vv_button(button), content)
+        onSignal(UnsafeMutableRawPointer(button), "clicked", action)
+        return button
+    }
+
     /// Attaches a key controller in the default bubble phase.
     static func observeKeys(_ widget: Widget,
                             _ handler: @escaping (UInt32, UInt32, Bool) -> Bool) {
