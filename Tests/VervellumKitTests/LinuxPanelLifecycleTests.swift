@@ -7,7 +7,7 @@ import XCTest
 final class LinuxPanelLifecycleTests: XCTestCase {
 
     func testAttachmentRemovalButtonNamesTheFileForAssistiveTechnology() throws {
-        try requireDisplay()
+        guard try requireDisplay() else { return }
 
         let button = LinuxPanel.attachmentRemovalButton(named: "report.pdf") {}
         _ = g_object_ref_sink(button)
@@ -20,7 +20,7 @@ final class LinuxPanelLifecycleTests: XCTestCase {
     }
 
     func testNativeCloseKeepsThePanelAvailableForTheShortcut() throws {
-        try requireDisplay()
+        guard try requireDisplay() else { return }
 
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("VervellumPanelTest-\(UUID().uuidString)")
@@ -59,14 +59,15 @@ final class LinuxPanelLifecycleTests: XCTestCase {
         XCTAssertEqual(gtk_application_get_active_window(application), window)
     }
 
-    private func requireDisplay() throws {
+    private func requireDisplay() throws -> Bool {
         guard gtk_init_check() != 0 else {
             if ProcessInfo.processInfo.environment["VERVELLUM_REQUIRE_DISPLAY"] == "1" {
                 XCTFail("The GTK smoke test requires a working display.")
-                return
+                return false
             }
             throw XCTSkip("Requires a GTK display, such as Xvfb.")
         }
+        return true
     }
 }
 #endif
