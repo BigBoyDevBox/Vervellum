@@ -31,6 +31,17 @@ enum TranscriptFormatter {
 
         lines.append(turn.answer)
 
+        // The draft the findings were written about. It is kept so a reader can see what
+        // the correction changed, and an export that omitted it would leave the claims
+        // table grading prose nobody can read. Gated like the panel's disclosure: a
+        // blank draft, or one identical to the answer, adds nothing to compare.
+        if let draft = turn.draftAnswer,
+           DraftComparison.isOffered(draft: draft, answer: turn.answer) {
+            lines.append("")
+            lines.append("First draft (before the correction)")
+            lines.append(draft)
+        }
+
         if !turn.findings.isEmpty {
             lines.append("")
             lines.append("Claims")
