@@ -37,6 +37,20 @@ final class EvidenceExtractorTests: XCTestCase {
         XCTAssertEqual(EvidenceExtractor.sources(from: [first, second]).count, 1)
     }
 
+    func testURLVariantsAcrossSearchesShareOneNumber() {
+        let first = "https://a.example/page?utm_source=first#section"
+        let results: [Any] = [
+            ["url": first, "title": "First spelling"],
+            ["url": "https://a.example/page", "title": "Same page"],
+            "Same page: https://a.example/page?utm_campaign=second",
+            ["url": "https://a.example/page?id=2", "title": "Different page"],
+        ]
+        let sources = EvidenceExtractor.sources(from: results, startingAt: 5)
+        XCTAssertEqual(sources.map(\.number), [5, 6])
+        XCTAssertEqual(sources.map(\.url), [first, "https://a.example/page?id=2"])
+        XCTAssertEqual(sources.first?.title, "First spelling")
+    }
+
     /// Search rank is not a diversity policy: one well-ranked domain can fill the top
     /// of the list with several spellings of the same page, which the answer then
     /// reads as independent agreement. The cap keeps any single voice a minority, and
