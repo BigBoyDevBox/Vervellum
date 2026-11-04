@@ -170,13 +170,14 @@ enum AgentStepParser {
             else { throw ResearchError("The agent step's search arguments were unusable.") }
             return Step(thought: thought, action: .search(arguments: arguments))
         case "read":
-            // Numbers as leniently as the assessment reads its citations — models
-            // write numbers as strings — but never reinterpreted: what is not a
-            // number names no page.
-            let sources = (object["sources"] as? [Any] ?? []).compactMap { value in
-                (value as? Int)
-                    ?? (value as? String).flatMap { Int($0.trimmingCharacters(in: .whitespaces)) }
-            }.filter { $0 >= 1 }
+            // The shared rule, not a second one. This parser used to write its own
+            // coercion, and the two disagreed exactly where a model-written value is
+            // most dangerous: `NSNumber(true) as? Int` answers 1 on Darwin, so a step
+            // `[true]` fetched page 1, while planned reads and assessment citations
+            // rejected the same input. One conversion, one answer, as
+            // `SIMPLIFICATION-AUDIT.md`'s deferred bug-fix pass asked for.
+            let sources = (object["sources"] as? [Any] ?? []).compactMap(sourceNumber)
+                .filter { $0 >= 1 }
             guard !sources.isEmpty else {
                 throw ResearchError("The agent step named no page to read.")
             }

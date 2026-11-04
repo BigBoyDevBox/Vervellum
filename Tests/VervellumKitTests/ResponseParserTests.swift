@@ -36,6 +36,42 @@ final class PlanParserTests: XCTestCase {
         guard case .answer = answer.action else { return XCTFail("expected an answer action") }
     }
 
+    /// A boolean is not a page number, and neither is a fraction. This parser had its
+    /// own coercion, and on Darwin `NSNumber(true) as? Int` answers 1 — so `[true]`
+    /// fetched page 1 while planned reads and assessment citations rejected the same
+    /// input. The fixture builds the value through `JSONSerialization`, the shape the
+    /// real pipeline hands the parser.
+    func testAnAgentReadRejectsBooleansAndFractionsAsPageNumbers() throws {
+        func step(_ json: String) throws -> AgentStepParser.Step {
+            let data = Data(json.utf8)
+            let object = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+            return try AgentStepParser.parse(object ?? [:])
+        }
+
+        let mixed = try step(#"{"action":"read","sources":[true, 2]}"#)
+        guard case .read(let numbers) = mixed.action else {
+            return XCTFail("expected a read action")
+        }
+        XCTAssertEqual(numbers, [2], "a boolean must not become page 1")
+
+        XCTAssertThrowsError(try step(#"{"action":"read","sources":[false]}"#),
+                             "false is not a page either")
+        XCTAssertThrowsError(try step(#"{"action":"read","sources":[1.5]}"#),
+                             "a fraction names no page")
+
+        let integral = try step(#"{"action":"read","sources":[1.0]}"#)
+        guard case .read(let numbers) = integral.action else {
+            return XCTFail("expected a read action")
+        }
+        XCTAssertEqual(numbers, [1], "an exact integer is still a page")
+
+        let quoted = try step(#"{"action":"read","sources":[true, "3", 1.5]}"#)
+        guard case .read(let numbers) = quoted.action else {
+            return XCTFail("expected a read action")
+        }
+        XCTAssertEqual(numbers, [3], "a quoted integer is still a page; the rest are not")
+    }
+
     func testRejectsAnUnknownOrMissingAction() {
         XCTAssertThrowsError(try AgentStepParser.parse(["thought": "…", "action": "think"]))
         XCTAssertThrowsError(try AgentStepParser.parse(["thought": "…"]))
