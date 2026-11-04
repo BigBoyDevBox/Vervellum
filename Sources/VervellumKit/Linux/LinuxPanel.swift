@@ -88,6 +88,10 @@ final class LinuxPanel {
     /// the in-place answer update and a full rebuild.
     private var lastRenderedTurns: [ResearchTurn] = []
 
+    /// Turns whose first draft is open. The window rebuilds from scratch, so this
+    /// cannot live on the widget.
+    private var expandedDrafts: Set<UUID> = []
+
     init(application: UnsafeMutablePointer<GtkApplication>,
          environment: LinuxEnvironment = .shared) {
         self.environment = environment
@@ -821,6 +825,31 @@ final class LinuxPanel {
             // Registered for the in-place streaming update; see `turnAnswerLabels`.
             turnAnswerLabels[turn.id] = answer
             GTK.append(box, answer)
+            if DraftComparison.isOffered(draft: turn.draftAnswer, answer: turn.answer),
+               let draft = turn.draftAnswer {
+                let open = expandedDrafts.contains(turn.id)
+                let toggle = GTK.button(open ? DraftComparison.hideLabel : DraftComparison.showLabel) { [weak self] in
+                    guard let self else { return }
+                    if self.expandedDrafts.contains(turn.id) {
+                        self.expandedDrafts.remove(turn.id)
+                    } else {
+                        self.expandedDrafts.insert(turn.id)
+                    }
+                    self.render()
+                }
+                gtk_widget_set_halign(toggle, GTK_ALIGN_START)
+                // The same explanation the macOS disclosure carries as an
+                // accessibility hint: without it the button is a label that
+                // expands something, and a tooltip is where GTK readers look.
+                gtk_widget_set_tooltip_text(toggle,
+                    "The findings grade this draft, not the answer above")
+                GTK.append(box, toggle)
+                if open {
+                    let shown = GTK.markupLabel(PangoMarkup.answer(draft, sources: turn.sources))
+                    GTK.onLinkActivated(shown) { [weak self] in self?.handleLink($0) ?? true }
+                    GTK.append(box, shown)
+                }
+            }
         }
         if let findings = PangoMarkup.findings(turn.findings) {
             GTK.append(box, GTK.markupLabel(findings))

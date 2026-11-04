@@ -49,6 +49,9 @@ struct TurnView: View, Equatable {
     @State private var trailExpanded = false
     @State private var sourcesExpanded = false
     @State private var showsAllSources = false
+    /// The first draft, collapsed. The findings grade it, and the answer above is
+    /// the rewrite; opening this is the comparison the notice promises.
+    @State private var showsDraft = false
 
     private var validation: CitationValidator.Result {
         CitationValidator.validate(answer: turn.answer, sourceCount: turn.sources.count)
@@ -78,6 +81,7 @@ struct TurnView: View, Equatable {
                 MarkdownBody(markdown: turn.answer, sources: turn.sources, scale: textScale)
                     .padding(.vertical, PanelTheme.Space.hair)
                 answerFooter
+                draftDisclosure
             } else if turn.stage == .answering {
                 // The gap between "searching finished" and the first token is the one
                 // moment with nothing to show. A caret keeps it alive.
@@ -107,6 +111,26 @@ struct TurnView: View, Equatable {
 
             if !turn.followups.isEmpty {
                 FollowupsView(followups: turn.followups, onSelect: onAskFollowup)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var draftDisclosure: some View {
+        if let draft = turn.draftAnswer,
+           DraftComparison.isOffered(draft: draft, answer: turn.answer) {
+            Button {
+                showsDraft.toggle()
+            } label: {
+                Text(showsDraft ? DraftComparison.hideLabel : DraftComparison.showLabel)
+                    .font(PanelTheme.Font.caption(textScale))
+                    .foregroundStyle(PanelTheme.Palette.accent)
+            }
+            .buttonStyle(.plain)
+            .accessibilityHint("The findings grade this draft, not the answer above")
+            if showsDraft {
+                MarkdownBody(markdown: draft, sources: turn.sources, scale: textScale)
+                    .padding(.vertical, PanelTheme.Space.hair)
             }
         }
     }
