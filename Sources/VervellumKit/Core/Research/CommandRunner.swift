@@ -331,8 +331,13 @@ final class CommandRunner: CommandRunning {
             let handle = pipe.fileHandleForReading
             let source = DispatchSource.makeReadSource(
                 fileDescriptor: handle.fileDescriptor, queue: eventQueue)
-            source.setEventHandler { [weak self, weak source] in
-                guard let self, let source else { return }
+            // The source is read back through `self` rather than captured weakly:
+            // corelibs-libdispatch imports it as the non-class-bound
+            // `any DispatchSourceRead`, which `weak` cannot apply to on Linux. Handlers
+            // run on `eventQueue`, where `cancelReading` clears the property before
+            // cancelling, so a cleared property means there is nothing left to read.
+            source.setEventHandler { [weak self] in
+                guard let self, let source = self.source else { return }
                 self.readAnnounced(source.data)
             }
             source.setCancelHandler { try? handle.close() }
