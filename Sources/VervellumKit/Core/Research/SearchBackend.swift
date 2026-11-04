@@ -131,6 +131,11 @@ enum SearchBackendFactory {
             // credential. One stored here is passed to the tool as `KAGI_API_KEY`.
             return KagiCLIClient(executable: executable, apiKey: apiKey, trace: trace,
                                  runner: commandRunner)
+        case .unsupported:
+            // Preserve the row for a newer build, but never guess which protocol it
+            // speaks. In particular, no key or request may leave this process here.
+            throw ResearchError("The selected search provider type is not supported by "
+                                + "this version. Choose a supported provider in Settings.")
         }
     }
 }

@@ -94,6 +94,14 @@ final class QuestionLinkTests: XCTestCase {
                        ["https://example.com/a_(b"])
     }
 
+    /// A balanced copy later in the question must not donate its closer to an earlier,
+    /// genuinely unclosed occurrence of the same prefix.
+    func testParenthesisRepairBelongsToItsExactOccurrence() {
+        let question = "https://example.com/a_(b and https://example.com/a_(b)"
+        XCTAssertEqual(SourceHarvester.links(inQuestion: question, limit: 3),
+                       ["https://example.com/a_(b", "https://example.com/a_(b)"])
+    }
+
     /// `http` is half of "http(s)" and every other scheme test is a negative one.
     func testPlainHTTPLinksAreHarvested() {
         XCTAssertEqual(SourceHarvester.links(inQuestion: "Read http://example.com/page", limit: 3),

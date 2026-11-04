@@ -11,6 +11,15 @@ final class ComposerMetricsTests: XCTestCase {
 
     private let width: CGFloat = 320
 
+    func testRunningComposerReservesBothActionButtons() {
+        let rowWidth: CGFloat = 400
+        let buttonAndGap: CGFloat = 24 + PanelTheme.Space.small
+        XCTAssertEqual(PanelRootView.composerTextWidth(rowWidth: rowWidth, controls: .ask),
+                       rowWidth - buttonAndGap)
+        XCTAssertEqual(PanelRootView.composerTextWidth(rowWidth: rowWidth, controls: .askAndStop),
+                       rowWidth - 2 * buttonAndGap)
+    }
+
     func testAnEmptyComposerIsOneScaledLineTall() {
         XCTAssertEqual(ComposerView.height(for: "", width: width, scale: 1.0),
                        ComposerView.minimumHeight(1.0), accuracy: 0.5)

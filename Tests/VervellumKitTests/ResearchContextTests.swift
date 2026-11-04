@@ -212,6 +212,23 @@ final class ResearchContextTests: XCTestCase {
                                  ResearchContext.maxEvidenceCharacters)
     }
 
+    func testReadingAnEarlyPageCannotDisplaceLaterSourceMetadata() {
+        var sources = (1...3).map {
+            Source(number: $0, url: "https://e\($0).example", title: "Source", snippet: "Summary")
+        }
+        let metadata = ResearchContext.evidence(from: sources).entries
+        let page = String(repeating: "p", count: 512)
+        let limit = ResearchContext.measure(metadata) + page.utf8.count
+        sources[0].fullText = page
+
+        let result = ResearchContext.evidence(from: sources, limit: limit)
+        XCTAssertEqual(result.entries.count, sources.count)
+        XCTAssertEqual(result.dropped, 0)
+        XCTAssertEqual(result.withheldPageText, [1])
+        XCTAssertNil(result.entries.first?["page_text"])
+        XCTAssertLessThanOrEqual(ResearchContext.measure(result.entries), limit)
+    }
+
     func testTodayStringIsISOFormatted() {
         let date = Date(timeIntervalSince1970: 1_788_000_000)
         var calendar = Calendar(identifier: .gregorian)

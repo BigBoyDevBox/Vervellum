@@ -113,6 +113,16 @@ final class SearXNGClient: SearchBackend {
         try validate(arguments,
                      required: Self.inputSchema["required"] as? [String] ?? ["q"],
                      properties: Self.propertyKeys)
+        // `validate` checks that the key exists, not that it holds a usable query. A
+        // blank `q` is dropped by `requestURL`, so the instance would answer an
+        // unfiltered request and its generic results would be numbered as evidence for
+        // this question. Kagi's client already refuses the same two shapes.
+        guard let query = arguments["q"] as? String else {
+            throw ResearchError("The search query was not text. Try another model.")
+        }
+        guard !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw ResearchError("The model wrote an empty search query. Try another model.")
+        }
         guard let url = Self.requestURL(base: searchURL, arguments: arguments) else {
             throw ResearchError("Vervellum could not build the SearXNG request URL. "
                                 + "Check the address in the provider settings.")
@@ -176,7 +186,15 @@ final class SearXNGClient: SearchBackend {
         switch value {
         case let text as String: return text.trimmingCharacters(in: .whitespacesAndNewlines)
         case let number as Int: return String(number)
-        case let number as Double: return number == number.rounded() ? String(Int(number)) : String(number)
+        // `Int(number)` traps on an integral value outside Int's range, and a
+        // model-written argument is exactly where such a value comes from: the schema
+        // advertises strings, but the shared validator checks argument *names* only,
+        // so `"time_range": 1e308` reaches here. A trap takes the whole app down
+        // mid-turn. `Int(exactly:)` answers nil for those, for NaN and for infinity;
+        // everything else renders exactly as it did before.
+        case let number as Double:
+            guard let exact = Int(exactly: number) else { return String(number) }
+            return String(exact)
         case let flag as Bool: return flag ? "1" : "0"
         case let values as [Any]: return values.compactMap { queryValue($0) }.joined(separator: ",")
         default: return nil

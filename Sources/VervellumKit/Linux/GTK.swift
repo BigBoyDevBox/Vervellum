@@ -57,13 +57,15 @@ enum GTK {
     /// `true` stops the key reaching the widget underneath, which is how Return sends a
     /// question instead of also inserting a newline.
     static func onKeyPressed(_ controller: UnsafeMutableRawPointer,
-                             _ handler: @escaping (_ keyval: UInt32, _ modifiers: UInt32) -> Bool) {
+                             _ handler: @escaping (_ keyval: UInt32, _ modifiers: UInt32,
+                                                   _ pasteShortcutMatches: Bool) -> Bool) {
         let box = Unmanaged.passRetained(KeyBox(handler)).toOpaque()
         let trampoline: @convention(c) (UnsafeMutableRawPointer?, guint, guint, GdkModifierType,
-                                        UnsafeMutableRawPointer?) -> gboolean = { _, keyval, _, state, data in
-            guard let data else { return 0 }
+                                        UnsafeMutableRawPointer?) -> gboolean = { controller, keyval, _, state, data in
+            guard let controller, let data else { return 0 }
+            let pasteShortcutMatches = vv_key_controller_matches_paste(controller) != 0
             let handled = Unmanaged<KeyBox>.fromOpaque(data).takeUnretainedValue()
-                .call(UInt32(keyval), UInt32(state.rawValue))
+                .call(UInt32(keyval), UInt32(state.rawValue), pasteShortcutMatches)
             return handled ? 1 : 0
         }
         vv_connect(controller, "key-pressed",
@@ -254,8 +256,8 @@ enum GTK {
     }
 
     private final class KeyBox {
-        let call: (UInt32, UInt32) -> Bool
-        init(_ call: @escaping (UInt32, UInt32) -> Bool) { self.call = call }
+        let call: (UInt32, UInt32, Bool) -> Bool
+        init(_ call: @escaping (UInt32, UInt32, Bool) -> Bool) { self.call = call }
     }
     private static let releaseKeyBox: GClosureNotify = { data, _ in
         guard let data else { return }
@@ -449,7 +451,8 @@ enum GTK {
     }
 
     /// Attaches a key controller in the default bubble phase.
-    static func observeKeys(_ widget: Widget, _ handler: @escaping (UInt32, UInt32) -> Bool) {
+    static func observeKeys(_ widget: Widget,
+                            _ handler: @escaping (UInt32, UInt32, Bool) -> Bool) {
         let controller = gtk_event_controller_key_new()!
         onKeyPressed(UnsafeMutableRawPointer(controller), handler)
         gtk_widget_add_controller(widget, controller)
@@ -464,31 +467,13 @@ enum GTK {
     }
 
     static func isEscape(_ keyval: UInt32) -> Bool { keyval == vv_key_escape() }
-    /// Control-V. The paste that GTK would otherwise handle by itself, intercepted only
-    /// when the clipboard is carrying something a text view cannot show.
-    ///
-    /// Both spellings of the key, because a keyval follows the effective lock state: with
-    /// Caps Lock on, Ctrl-V arrives as `GDK_KEY_V`, and matching only the lowercase one
-    /// would make pasting a screenshot fail for exactly the users who could never work
-    /// out why.
-    ///
-    /// Shift disqualifies the gesture whichever spelling arrives, and that is the whole
-    /// of the rule: plain Ctrl-V never carries Shift, while Ctrl-Shift-V — a gesture of
-    /// its own in most applications — arrives capitalised with Caps Lock *off* and in
-    /// lowercase with it *on*, because the two locks cancel. Guarding only the capital
-    /// left the second of those looking exactly like a plain paste.
-    ///
-    /// Both spellings are Latin ones, and that is a known gap rather than an oversight.
-    /// A keyval follows the active keyboard group, so under a Cyrillic or Greek layout
-    /// the same physical key arrives as its native letter even with Control held, and
-    /// this answers false. The paste is then GTK's, which inserts the clipboard's text
-    /// flavour — for a copied file that is the `file:///…` URI, which is the thing the
-    /// interception exists to keep out of a question. Closing it means matching the
-    /// event's hardware keycode instead of its keyval, which is a value this does not
-    /// receive; it belongs to whatever revisits how keys reach here.
-    static func isPaste(_ keyval: UInt32, _ modifiers: UInt32) -> Bool {
-        guard hasControl(modifiers), !hasShift(modifiers) else { return false }
-        return keyval == vv_key_v() || keyval == vv_key_capital_v()
+    /// Intercepts plain Control-V only. `shortcutMatches` comes from GDK's event matcher,
+    /// which understands keyboard groups; the explicit modifier checks preserve
+    /// Control-Shift-V as a distinct gesture even when Caps Lock changes the keyval.
+    static func shouldInterceptPaste(shortcutMatches: Bool,
+                                     controlPressed: Bool,
+                                     shiftPressed: Bool) -> Bool {
+        shortcutMatches && controlPressed && !shiftPressed
     }
     static func hasShift(_ modifiers: UInt32) -> Bool { modifiers & vv_mask_shift() != 0 }
     static func hasControl(_ modifiers: UInt32) -> Bool { modifiers & vv_mask_control() != 0 }

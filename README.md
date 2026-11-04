@@ -110,9 +110,14 @@ runs the searches and answers based on current sources.
   Exa and SearXNG, and only recognized tool names are accepted — or a **SearXNG
   instance queried directly**, with no MCP bridge in between, or **Kagi** through the
   [`kagi` command-line tool](https://github.com/Microck/kagi-cli) you have already
-  signed in with. Model replies must
+  signed in with (macOS and native Linux installs; the Flatpak cannot reach host
+  executables or their authentication files). Model replies must
   finish with `finish_reason: stop`; malformed or unfinished replies remain
-  incomplete. Keys live in your Keychain on macOS, one per configured provider.
+  incomplete. On macOS, keys live in one login-Keychain item as an account-to-key
+  dictionary. Writes also update legacy per-account items on a best-effort basis so an
+  older build can still read keys after a downgrade. Deleting a key removes its legacy
+  item first and only then updates the blob, so a downgraded build cannot read a key
+  you have deleted.
 - **As many models as you want, chosen per question.** Configure several providers —
   a local server, a fast hosted model, a careful one — each with its own endpoint and
   its own key. Pick the one that answers next from the panel or with `/model`; every
@@ -160,11 +165,23 @@ vervellum --install-shortcut          # binds ⌃⌥⌘Space in GNOME
 
 # or sandboxed (any distro with Flatpak):
 flatpak install --user ./vervellum-linux-amd64.flatpak
-# Flatpak redirects HOME: its settings live under
-# ~/.var/app/ch.lkmc.Vervellum/config/vervellum/ instead.
 ```
 
-Configure it by editing `~/.config/vervellum/settings.json`:
+Configure a native `.deb` install by editing:
+
+```text
+~/.config/vervellum/settings.json
+```
+
+For the Flatpak, edit this file instead:
+
+```text
+~/.var/app/ch.lkmc.Vervellum/config/vervellum/settings.json
+```
+
+Flatpak gives the app its own configuration home and does not read the native path. The
+`ch.lkmc.Vervellum` directory is the application ID declared by the Flatpak manifest.
+Both files use the same JSON shape:
 
 ```json
 {
@@ -188,8 +205,9 @@ at the instance (its home page is enough — `/search` is appended):
 }
 ```
 
-To search Kagi, install the [`kagi` CLI](https://github.com/Microck/kagi-cli), sign it
-in once with `kagi auth`, and select it as the provider:
+For a native `.deb` install, Kagi search uses the
+[`kagi` CLI](https://github.com/Microck/kagi-cli). Install it, sign in once with
+`kagi auth`, and select it as the provider:
 
 ```json
 {
@@ -202,6 +220,11 @@ in once with `kagi auth`, and select it as the provider:
 found on `PATH` and in the usual install directories, or give the full path to the
 binary. The credential stays in the CLI — Vervellum never sees it, and needs no key of
 its own for this provider.
+
+The Flatpak cannot use the Kagi CLI backend: it neither bundles the program nor exposes
+host executables and their authentication files. Choose an MCP or SearXNG search
+provider in the Flatpak. The sandbox deliberately is not widened to run arbitrary host
+programs.
 
 Page reading is `pageReading`, one of `"off"`, `"direct"` or `"reader"` (default
 `"direct"`), with `readerEndpoint` for the reader service and its key in
@@ -308,13 +331,19 @@ without it.
 
 ## Privacy
 
-Your question, the thread, and the search results go to the two providers you
-configure, and nowhere else. There's no account system and no telemetry or
-analytics. Threads and preferences stay on your machine. API keys live in the
-Keychain on macOS. Linux reads explicit environment keys first, then the keyring,
-then an unencrypted mode-0600 file. Text captured by the macOS selection shortcut is scanned for
-credential-shaped values before it reaches the composer, and you're told how many
-were removed. See [PRIVACY.md](PRIVACY.md).
+There is no account system, telemetry or analytics. A question and its thread go to
+the selected model provider; if model fallback is enabled and that provider fails,
+the same request can go to the next configured model providers. **No search** makes
+no search or page requests, including for links pasted into the question. **One pass** uses the selected search provider, while
+**Deep rounds** sends each planned query to every configured search engine. Direct
+page reading also contacts up to three pages for One pass, or eight shared
+between pasted links and search results for Deep rounds and Agent loop; reader-service
+mode sends those URLs to the configured reader instead. Threads and preferences stay
+on your machine. API keys live in the Keychain on macOS. Linux reads explicit
+environment keys first, then the keyring, then an unencrypted mode-0600 file. Text
+captured by the macOS selection shortcut is scanned for credential-shaped values
+before it reaches the composer, and you're told how many were removed. See
+[PRIVACY.md](PRIVACY.md) for the complete per-stage account.
 
 ## Distribution
 

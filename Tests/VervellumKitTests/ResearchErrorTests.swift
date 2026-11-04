@@ -22,6 +22,20 @@ final class ResearchErrorTests: XCTestCase {
         XCTAssertFalse(label.contains("api.example.com"))
     }
 
+    /// Search failures are shown in the panel and written into the thread. A
+    /// non-`ResearchError` must not contribute its description.
+    func testAForeignSearchFailureDoesNotDiscloseItsDescription() {
+        struct LeakySearchError: Error, CustomStringConvertible {
+            var description: String { "URLError https://search.example/?key=sk-SECRETVALUE" }
+        }
+        let disclosed = ResearchError.disclosedSearchFailure(LeakySearchError())
+        XCTAssertFalse(disclosed.contains("sk-SECRETVALUE"), disclosed)
+        XCTAssertFalse(disclosed.contains("search.example"), disclosed)
+        XCTAssertEqual(
+            ResearchError.disclosedSearchFailure(ResearchError("search is down")),
+            "search is down")
+    }
+
     func testOurOwnMessagesArePassedThrough() {
         let error = ResearchError("The provider returned HTTP 429.")
         XCTAssertEqual(ResearchError.safeLabel(for: error), "The provider returned HTTP 429.")

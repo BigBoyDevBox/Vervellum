@@ -162,21 +162,22 @@ enum ResearchContext {
             let bare = measure(entry) + separator
             guard used + bare <= limit else { break }
 
-            if source.wasRead, let text = source.fullText {
-                var withText = entry
-                withText["page_text"] = text
-                let full = measure(withText) + separator
-                if used + full <= limit {
-                    entry = withText
-                    used += full
-                } else {
-                    withheld.insert(source.number)
-                    used += bare
-                }
-            } else {
-                used += bare
-            }
+            used += bare
             entries.append(entry)
+        }
+
+        // Reserve every retained summary before a page can spend the remaining budget.
+        for (index, source) in sources.prefix(entries.count).enumerated() {
+            guard source.wasRead, let text = source.fullText else { continue }
+            var withText = entries[index]
+            withText["page_text"] = text
+            let additional = measure(withText) - measure(entries[index])
+            guard used + additional <= limit else {
+                withheld.insert(source.number)
+                continue
+            }
+            entries[index] = withText
+            used += additional
         }
         return (entries, sources.count - entries.count, withheld)
     }

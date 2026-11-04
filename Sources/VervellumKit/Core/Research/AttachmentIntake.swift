@@ -105,20 +105,21 @@ enum AttachmentIntake {
                      fileManager: FileManager = .default) -> Outcome {
         var result = Outcome()
         var candidates: [Candidate] = []
+        var filesRead = 0
         // Recorded here, said at the end. Which of the two cap sentences is true turns on
-        // whether anything landed, and nothing here knows that yet: a candidate is a file
-        // that got as far as being read, not one that will be accepted, and every one of
-        // them can still be refused by `PendingAttachment.make` below. Four empty files
-        // and a photograph, dropped together, spent the budget on the four, said "the
-        // rest were left out" — and then refused all four, so nothing was taken and the
-        // sentence presupposed something that never happened.
+        // whether anything landed, and nothing here knows that yet: every file whose
+        // bytes were read spends one slot even if it is later refused, and every
+        // candidate can still be refused by `PendingAttachment.make` below. Four empty
+        // files and a photograph, dropped together, spent the budget on the four, said
+        // "the rest were left out" — and then refused all four, so nothing was taken and
+        // the sentence presupposed something that never happened.
         var overflowed = false
         for url in files {
             // The limit before the read, not only inside `outcome`. A folder of thirty
             // photos dragged onto the composer would otherwise be thirty files pulled
             // into memory so that four could be kept — the same waste the size check
             // above exists to avoid, one level up.
-            guard candidates.count + existing < maximumPerQuestion else {
+            guard filesRead + existing < maximumPerQuestion else {
                 overflowed = true
                 break
             }
@@ -154,8 +155,8 @@ enum AttachmentIntake {
             // here that can exceed what a C `int` holds: `intValue` is `Int`-typed but
             // reads the value through a 32-bit conversion on Darwin, so a 4 GiB screen
             // recording arrives as a handful of bytes and walks straight past the
-            // ceiling below into `contents(atPath:)`, which is the read this whole
-            // branch exists to prevent. `Int(exactly:)` is what makes the 32-bit build
+            // ceiling below into a read, which is the waste this whole branch exists to
+            // prevent. `Int(exactly:)` is what makes the 32-bit build
             // refuse rather than wrap.
             guard let size = (attributes[.size] as? NSNumber).flatMap({
                 Int(exactly: $0.int64Value)
@@ -168,8 +169,16 @@ enum AttachmentIntake {
                     .tooLarge(name: Attachment.displayName(for: name), byteCount: size).message)
                 continue
             }
-            guard let data = fileManager.contents(atPath: path) else {
+            guard let data = try? readBoundedFile(atPath: path,
+                                                 maximumBytes: Attachment.maxAttachmentBytes) else {
                 result.refusals.append(unreadableMessage(name))
+                continue
+            }
+            filesRead += 1
+            guard data.count <= Attachment.maxAttachmentBytes else {
+                // Only the first byte beyond the limit was read, so claiming an exact
+                // size here would turn 4 MiB + 1 byte into the misleading "4.0 MB".
+                result.refusals.append(outgrewLimitMessage(name))
                 continue
             }
             candidates.append(Candidate(data, name: name))
@@ -185,6 +194,36 @@ enum AttachmentIntake {
         }
         result.refusals += decided.refusals
         return result
+    }
+
+    /// Reads one byte beyond the attachment ceiling, which is enough for the ordinary
+    /// validation path to distinguish "fits" from "too large" without ever allocating
+    /// the rest of a file that grew or was replaced after its directory entry was read.
+    /// A regular-file read can legally be short before EOF, so reaching the ceiling is a
+    /// loop rather than one `read(upToCount:)` call.
+    ///
+    /// `FileManager` has no bounded-read API, so this deliberately uses `FileHandle`
+    /// directly; the injected manager remains the metadata seam. Production callers use
+    /// `.default`, and tests that need a read failure must supply a real unreadable path.
+    private static func readBoundedFile(atPath path: String, maximumBytes: Int) throws -> Data {
+        let handle = try FileHandle(forReadingFrom: URL(fileURLWithPath: path))
+        defer { try? handle.close() }
+
+        var data = Data()
+        let ceiling = maximumBytes + 1
+        while data.count < ceiling {
+            guard let chunk = try handle.read(upToCount: ceiling - data.count),
+                  !chunk.isEmpty else { break }
+            data.append(chunk)
+        }
+        return data
+    }
+
+    private static func outgrewLimitMessage(_ rawName: String) -> String {
+        let name = Attachment.displayName(for: rawName)
+        let megabytes = Attachment.maxAttachmentBytes / (1024 * 1024)
+        return "\(name) is larger than the \(megabytes) MB attachment limit — "
+            + "scale it down, or attach a shorter file."
     }
 
     /// Said by a front end when a gesture brought more than the question can carry, and
