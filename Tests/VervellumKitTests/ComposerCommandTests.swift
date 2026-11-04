@@ -173,6 +173,29 @@ final class ComposerCommandTests: XCTestCase {
         }
     }
 
+    /// Linux has no in-app global shortcut, no settings window and different editing
+    /// keys; its `/help` must not teach presses that do nothing there, and must name
+    /// the commands it does have.
+    func testTheLinuxHelpNamesOnlyKeysAndCommandsThatExist() {
+        let help = ComposerCommand.helpText(legend: .linux)
+        XCTAssertTrue(help.contains("Ctrl-Return"))
+        XCTAssertFalse(help.contains("⌘"), "no Command keys exist on this platform")
+        XCTAssertTrue(help.contains("- `/history`"), "the Linux panel has a history list")
+        XCTAssertFalse(help.contains("- `/settings`"))
+        XCTAssertTrue(help.contains("- `/copy`"), "the Linux panel copies the last answer")
+        XCTAssertTrue(help.contains("~/.config/vervellum/settings.json"))
+        // The levels and the model command are shared and still explained.
+        XCTAssertTrue(help.contains("How hard to look"))
+        XCTAssertTrue(help.contains("/model"))
+    }
+
+    func testTheMacOSHelpStillNamesEveryShortcut() {
+        let help = ComposerCommand.helpText(legend: .macOS)
+        for key in ["⌘N", "⌘Y", "⌘.", "⌘,", "⌘W", "⌘Return"] {
+            XCTAssertTrue(help.contains(key), "macOS help is missing \(key)")
+        }
+    }
+
     // MARK: /model
 
     /// Unlike a level word, a bare `/model` is a complete request — "show me what there
