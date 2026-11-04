@@ -56,12 +56,13 @@ jobs:
       - name: Test provider protocols over loopback
         run: python3 Tests/Integration/provider_fixtures.py .build/release/vervellum
 
-      # Native close must retain the window that the next shortcut will reuse.
-      - name: Test the GTK window lifecycle
+      # Native close must retain the window that the next shortcut will reuse, and the
+      # test accessibility backend exposes widget semantics without a desktop reader.
+      - name: Test the GTK window lifecycle and accessibility
         env:
           VERVELLUM_REQUIRE_DISPLAY: '1'
           GSETTINGS_BACKEND: memory
-          GTK_A11Y: none
+          GTK_A11Y: test
           GSK_RENDERER: cairo
         run: xvfb-run --auto-servernum swift test --skip-build --filter LinuxPanelLifecycleTests
 

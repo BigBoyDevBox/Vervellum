@@ -95,6 +95,20 @@ static inline void vv_set_margins(GtkWidget *w, int all) {
     gtk_widget_set_margin_end(w, all);
 }
 
+/*
+ * Exact-value accessibility assertion for the Linux GTK smoke test. The public GTK
+ * helper is variadic, so Swift cannot call it. A NULL result means the value matched;
+ * otherwise GTK returns a diagnostic string owned by the caller.
+ */
+static inline int vv_test_accessible_label_matches(GtkWidget *widget,
+                                                   const char *expected) {
+    char *actual = gtk_test_accessible_check_property(
+        GTK_ACCESSIBLE(widget), GTK_ACCESSIBLE_PROPERTY_LABEL, expected);
+    if (actual == NULL) return 1;
+    g_free(actual);
+    return 0;
+}
+
 /* Keyvals are macros in gdk/gdkkeysyms.h. */
 static inline guint vv_key_return(void)    { return GDK_KEY_Return; }
 static inline guint vv_key_kp_enter(void)  { return GDK_KEY_KP_Enter; }

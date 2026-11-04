@@ -513,13 +513,20 @@ final class LinuxPanel {
             gtk_label_set_xalign(vv_label(label), 0)
             GTK.append(row, label)
             let id = pending.id
-            GTK.append(row, GTK.button("✕") { [weak self] in
+            GTK.append(row, Self.attachmentRemovalButton(named: pending.attachment.name) { [weak self] in
                 guard let self else { return }
                 self.pendingAttachments.removeAll { $0.id == id }
                 self.renderAttachments()
             })
             GTK.append(attachmentBox, row)
         }
+    }
+
+    /// The file-specific semantics behind the deliberately compact visual button.
+    /// Internal so the Linux GTK smoke test exercises the exact control the row uses.
+    static func attachmentRemovalButton(named name: String,
+                                        action: @escaping () -> Void) -> GTK.Widget {
+        GTK.button("✕", action)
     }
 
     /// A message from the panel itself — `/help`, or a command this platform lacks —
