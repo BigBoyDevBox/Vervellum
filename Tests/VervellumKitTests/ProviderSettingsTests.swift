@@ -235,6 +235,41 @@ final class ProviderSettingsTests: XCTestCase {
                        "A profile with no recorded account still gets one")
     }
 
+    /// Lenient means present-but-wrong-typed too, and one non-object element must cost
+    /// only itself. Otherwise one damaged row makes CorePreferences abandon the whole
+    /// list and expose only the legacy single-provider mirror.
+    func testMalformedModelProfileFieldsDoNotDiscardTheirNeighbours() throws {
+        let valid = ModelProfile.new(name: "Kept", endpoint: "https://kept.example/v1",
+                                     model: "kept")
+        let encodedValid = try XCTUnwrap(ProviderSettings.encodeModelProfiles([valid]))
+        let validObject = String(encodedValid.dropFirst().dropLast())
+        let damaged = """
+            [17, {
+              "id": 42,
+              "name": false,
+              "endpoint": ["wrong shape"],
+              "model": 7,
+              "keyAccount": {},
+              "sendsImages": "yes"
+            }, \(validObject)]
+            """
+
+        let decoded = try XCTUnwrap(ProviderSettings.decodeModelProfiles(damaged))
+        XCTAssertEqual(decoded.count, 2, "only the non-object entry is dropped")
+        XCTAssertEqual(decoded[0].name, "")
+        XCTAssertEqual(decoded[0].endpoint, "")
+        XCTAssertEqual(decoded[0].model, "")
+        XCTAssertTrue(decoded[0].sendsImages)
+        XCTAssertFalse(decoded[0].keyAccount.isEmpty)
+        XCTAssertEqual(decoded[1], valid)
+
+        let document = "{\"modelProfiles\":\(damaged),\"searchProfiles\":[]}"
+        let whole = try JSONDecoder().decode(ProviderSettings.self, from: Data(document.utf8))
+        XCTAssertEqual(whole.modelProfiles.count, 2,
+                       "the whole-settings Codable path contains the same bad element")
+        XCTAssertEqual(whole.modelProfiles.last, valid)
+    }
+
     /// A profile is never listed as a blank row.
     func testDisplayNameFallsBackThroughTheModelToTheHost() {
         XCTAssertEqual(ModelProfile.new(name: "Named", endpoint: "https://a.example.com", model: "m")
@@ -349,6 +384,36 @@ final class ProviderSettingsTests: XCTestCase {
         ]
         let encoded = try XCTUnwrap(ProviderSettings.encodeSearchProfiles(profiles))
         XCTAssertEqual(ProviderSettings.decodeSearchProfiles(encoded), profiles)
+    }
+
+    func testMalformedSearchProfileFieldsDoNotDiscardTheirNeighbours() throws {
+        let valid = SearchProfile.new(name: "Kept", kind: .searxng,
+                                      endpoint: "https://kept.example")
+        let encodedValid = try XCTUnwrap(ProviderSettings.encodeSearchProfiles([valid]))
+        let validObject = String(encodedValid.dropFirst().dropLast())
+        let damaged = """
+            [true, {
+              "id": [],
+              "name": 12,
+              "kind": "searxng",
+              "endpoint": false,
+              "keyAccount": 99
+            }, \(validObject)]
+            """
+
+        let decoded = try XCTUnwrap(ProviderSettings.decodeSearchProfiles(damaged))
+        XCTAssertEqual(decoded.count, 2, "only the non-object entry is dropped")
+        XCTAssertEqual(decoded[0].name, "")
+        XCTAssertEqual(decoded[0].kind, .searxng)
+        XCTAssertEqual(decoded[0].endpoint, "")
+        XCTAssertFalse(decoded[0].keyAccount.isEmpty)
+        XCTAssertEqual(decoded[1], valid)
+
+        let document = "{\"modelProfiles\":[],\"searchProfiles\":\(damaged)}"
+        let whole = try JSONDecoder().decode(ProviderSettings.self, from: Data(document.utf8))
+        XCTAssertEqual(whole.searchProfiles.count, 2,
+                       "the whole-settings Codable path contains the same bad element")
+        XCTAssertEqual(whole.searchProfiles.last, valid)
     }
 
     /// A settings file written by a build that knows more backends must not cost the

@@ -1,5 +1,16 @@
 import Foundation
 
+/// Contains one unreadable element in a persisted list instead of letting it discard
+/// every valid neighbour. The profile decoders themselves salvage malformed fields;
+/// this wrapper covers a value that is not a profile object at all.
+private struct LossyDecodable<Value: Decodable>: Decodable {
+    let value: Value?
+
+    init(from decoder: Decoder) throws {
+        value = try? Value(from: decoder)
+    }
+}
+
 /// How Vervellum reaches a web-search backend.
 ///
 /// Two kinds, because the two are genuinely different protocols and pretending
@@ -140,16 +151,16 @@ struct SearchProfile: Codable, Equatable, Identifiable {
     /// Lenient, for the reason `ModelProfile.init(from:)` is.
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        let id = try container.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
+        let id = (try? container.decode(UUID.self, forKey: .id)) ?? UUID()
         self.id = id
-        name = try container.decodeIfPresent(String.self, forKey: .name) ?? ""
+        name = (try? container.decode(String.self, forKey: .name)) ?? ""
         // An unrecognised kind reads as `.mcp` rather than failing the whole list: that
         // is what a settings file written by a build with more backends looks like, and
         // one unknown entry must not cost the user every other provider.
-        let rawKind = (try? container.decodeIfPresent(String.self, forKey: .kind)) ?? nil
+        let rawKind = try? container.decode(String.self, forKey: .kind)
         kind = rawKind.flatMap { SearchProviderKind(rawValue: $0) } ?? .mcp
-        endpoint = try container.decodeIfPresent(String.self, forKey: .endpoint) ?? ""
-        keyAccount = try container.decodeIfPresent(String.self, forKey: .keyAccount)
+        endpoint = (try? container.decode(String.self, forKey: .endpoint)) ?? ""
+        keyAccount = (try? container.decode(String.self, forKey: .keyAccount))
             ?? SecretAccount.derived(from: .searchAPIKey, for: id).rawValue
     }
 }
@@ -253,19 +264,19 @@ struct ModelProfile: Codable, Equatable, Identifiable {
     /// re-pasting every endpoint they had configured.
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        let id = try container.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
+        let id = (try? container.decode(UUID.self, forKey: .id)) ?? UUID()
         self.id = id
-        name = try container.decodeIfPresent(String.self, forKey: .name) ?? ""
-        endpoint = try container.decodeIfPresent(String.self, forKey: .endpoint) ?? ""
-        model = try container.decodeIfPresent(String.self, forKey: .model) ?? ""
-        keyAccount = try container.decodeIfPresent(String.self, forKey: .keyAccount)
+        name = (try? container.decode(String.self, forKey: .name)) ?? ""
+        endpoint = (try? container.decode(String.self, forKey: .endpoint)) ?? ""
+        model = (try? container.decode(String.self, forKey: .model)) ?? ""
+        keyAccount = (try? container.decode(String.self, forKey: .keyAccount))
             ?? SecretAccount.derived(from: .modelAPIKey, for: id).rawValue
         // Absent means a settings file written before this existed. Read as "yes": the
         // endpoint either has eyes or answers 400, and `ChatCompletionsClient` turns that
         // 400 into the same turn without the picture plus a notice. An explicit `false`
         // is still honoured and is the right answer for a provider that accepts the part
         // and ignores it.
-        sendsImages = try container.decodeIfPresent(Bool.self, forKey: .sendsImages) ?? true
+        sendsImages = (try? container.decode(Bool.self, forKey: .sendsImages)) ?? true
     }
 }
 
@@ -606,7 +617,10 @@ struct ProviderSettings: Equatable, Codable {
     /// a corrupted list costs the extra profiles, never the ability to launch.
     static func decodeModelProfiles(_ text: String) -> [ModelProfile]? {
         guard let data = text.data(using: .utf8) else { return nil }
-        return try? JSONDecoder().decode([ModelProfile].self, from: data)
+        guard let decoded = try? JSONDecoder().decode(
+            [LossyDecodable<ModelProfile>].self, from: data)
+        else { return nil }
+        return decoded.compactMap(\.value)
     }
 
     static func encodeSearchProfiles(_ profiles: [SearchProfile]) -> String? {
@@ -618,7 +632,10 @@ struct ProviderSettings: Equatable, Codable {
 
     static func decodeSearchProfiles(_ text: String) -> [SearchProfile]? {
         guard let data = text.data(using: .utf8) else { return nil }
-        return try? JSONDecoder().decode([SearchProfile].self, from: data)
+        guard let decoded = try? JSONDecoder().decode(
+            [LossyDecodable<SearchProfile>].self, from: data)
+        else { return nil }
+        return decoded.compactMap(\.value)
     }
 
     // MARK: URL shaping
@@ -769,10 +786,14 @@ struct ProviderSettings: Equatable, Codable {
     /// Lenient for the same reason `ModelProfile.init(from:)` is.
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        modelProfiles = try container.decodeIfPresent([ModelProfile].self, forKey: .modelProfiles) ?? []
-        selectedModelID = try container.decodeIfPresent(UUID.self, forKey: .selectedModelID)
-        searchProfiles = try container.decodeIfPresent([SearchProfile].self, forKey: .searchProfiles) ?? []
-        selectedSearchID = try container.decodeIfPresent(UUID.self, forKey: .selectedSearchID)
+        modelProfiles = (try? container.decode(
+            [LossyDecodable<ModelProfile>].self, forKey: .modelProfiles))?
+            .compactMap(\.value) ?? []
+        selectedModelID = try? container.decode(UUID.self, forKey: .selectedModelID)
+        searchProfiles = (try? container.decode(
+            [LossyDecodable<SearchProfile>].self, forKey: .searchProfiles))?
+            .compactMap(\.value) ?? []
+        selectedSearchID = try? container.decode(UUID.self, forKey: .selectedSearchID)
         // Absent in anything written before the chain existed, and the default there is
         // the same as the default for a fresh install: on.
         // Lenient like `pageReading` below and every other field here: a strict decode
@@ -783,7 +804,7 @@ struct ProviderSettings: Equatable, Codable {
             ?? Self.defaultModelFallback
         let rawMode = (try? container.decodeIfPresent(String.self, forKey: .pageReading)) ?? nil
         pageReading = rawMode.flatMap { PageReadingMode(rawValue: $0) } ?? .direct
-        readerEndpoint = try container.decodeIfPresent(String.self, forKey: .readerEndpoint)
+        readerEndpoint = (try? container.decode(String.self, forKey: .readerEndpoint))
             ?? Self.defaultReaderEndpoint
     }
 }
