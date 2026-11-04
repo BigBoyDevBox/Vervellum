@@ -22,9 +22,24 @@ struct PanelRootView: View {
     @ObservedObject var engine: ResearchEngine
     @ObservedObject var store: ThreadStore
     @ObservedObject var preferences: Preferences
+    private let secrets: SecretStore
 
     var onOpenSettings: () -> Void
     var onClose: () -> Void
+
+    init(engine: ResearchEngine,
+         store: ThreadStore,
+         preferences: Preferences,
+         secrets: SecretStore = KeychainStore(),
+         onOpenSettings: @escaping () -> Void,
+         onClose: @escaping () -> Void) {
+        self.engine = engine
+        self.store = store
+        self.preferences = preferences
+        self.secrets = secrets
+        self.onOpenSettings = onOpenSettings
+        self.onClose = onClose
+    }
 
     @State private var draft = ""
     /// What is attached to the question being typed, bytes and all.
@@ -754,8 +769,7 @@ struct PanelRootView: View {
                 Button {
                     var settings = preferences.providerSettings
                     settings.selectedModelID = profile.id
-                    preferences.providerSettings = settings
-                    refreshConfiguredState()
+                    commitProviderChange(settings)
                 } label: {
                     if profile.id == preferences.providerSettings.selectedModel?.id {
                         Label(profile.displayName, systemImage: "checkmark")
@@ -944,9 +958,24 @@ struct PanelRootView: View {
             notice = ComposerCommand.unknownModel(name, in: settings)
             return
         }
-        preferences.providerSettings = settings
-        refreshConfiguredState()
-        notice = ComposerCommand.modelListing(settings)
+        guard commitProviderChange(settings) else { return }
+        notice = ComposerCommand.modelListing(preferences.providerSettings)
+    }
+
+    /// Selection changes also rewrite the scalar downgrade mirror. They therefore use
+    /// the same transaction as Settings: an orphaned fixed key from an older build must
+    /// be deleted before the selected derived endpoint can become that mirror.
+    @discardableResult
+    private func commitProviderChange(_ settings: ProviderSettings) -> Bool {
+        do {
+            try preferences.commitProviderSettings(settings, secrets: secrets)
+            refreshConfiguredState()
+            return true
+        } catch {
+            notice = error.localizedDescription
+            refreshConfiguredState()
+            return false
+        }
     }
 
     /// Takes what a paste or a drop turned out to be carrying.
@@ -1101,10 +1130,9 @@ struct PanelRootView: View {
     }
 
     private func refreshConfiguredState() {
-        let keychain: SecretStore = KeychainStore()
         let settings = preferences.providerSettings
         configurationProblems = ProviderReadiness.problems(
-            settings: settings, level: preferences.researchLevel, secrets: keychain)
+            settings: settings, level: preferences.researchLevel, secrets: secrets)
     }
 
     /// A suggested follow-up, clicked.

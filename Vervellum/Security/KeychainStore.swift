@@ -36,11 +36,14 @@ final class KeychainStore: SecretStore {
 
     /// The keychain service name; one per app so two L-K-M apps never collide.
     let service: String
+    private let operations: KeychainOperations
 
     var backendDescription: String { "your login Keychain" }
 
-    init(service: String = AppIdentity.bundleIdentifier) {
+    init(service: String = AppIdentity.bundleIdentifier,
+         operations: KeychainOperations = .system) {
         self.service = service
+        self.operations = operations
     }
 
     /// `kSecAttrAccount` of the one item every key lives inside. Not a
@@ -136,10 +139,42 @@ final class KeychainStore: SecretStore {
         }
         let trimmed = secret.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { try delete(account); return }
-        try mutateBlob { $0[account.rawValue] = trimmed }
-        // Best-effort and after the blob: the blob is authoritative, the item
-        // exists so a downgraded build still finds the key.
-        try? setLegacy(trimmed, for: account)
+        var previous: String?
+        try mutateBlob {
+            previous = $0[account.rawValue]
+            $0[account.rawValue] = trimmed
+        }
+        // After the blob, but not best-effort: the per-account item is the stated
+        // downgrade path. Reporting success while it stayed stale would let a rolled-
+        // back build send the previous credential. Provider settings stage writes in
+        // fresh, unreferenced accounts, so this error is visible before any endpoint can
+        // point at a partially mirrored value.
+        do {
+            try setLegacy(trimmed, for: account)
+        } catch {
+            // Do not leave the current build claiming a value whose required downgrade
+            // mirror did not land. The pre-write state is restored rather than just
+            // undone: `set` is the general SecretStore API, and removal is only the
+            // right rollback when the account was absent — true for provider
+            // transactions, which write a fresh account or one cleared by a deletion
+            // barrier, but a caller that updated an existing account would otherwise
+            // lose its credential to a transient mirror failure.
+            do {
+                try mutateBlob { blob in
+                    if let previous {
+                        blob[account.rawValue] = previous
+                    } else {
+                        blob.removeValue(forKey: account.rawValue)
+                    }
+                }
+            } catch {
+                // Still safe for provider callers — the new account is either
+                // unreferenced or already belongs to the new endpoint — but a blob
+                // now holding a value the mirror never landed is worth a trace.
+                NSLog("Vervellum: keychain blob rollback for '\(account.rawValue)' failed: \(error)")
+            }
+            throw error
+        }
     }
 
     /// Removes the stored secret. Succeeds when nothing was stored.
@@ -191,7 +226,7 @@ final class KeychainStore: SecretStore {
         query[kSecMatchLimit as String] = kSecMatchLimitOne
 
         var item: CFTypeRef?
-        let status = SecItemCopyMatching(query as CFDictionary, &item)
+        let status = operations.copyMatching(query as CFDictionary, &item)
         switch status {
         case errSecSuccess:
             guard let data = item as? Data, let secrets = SecretBlob.decode(data) else {
@@ -248,7 +283,7 @@ final class KeychainStore: SecretStore {
         query[kSecMatchLimit as String] = kSecMatchLimitOne
 
         var item: CFTypeRef?
-        let status = SecItemCopyMatching(query as CFDictionary, &item)
+        let status = operations.copyMatching(query as CFDictionary, &item)
         guard status == errSecSuccess else {
             if status != errSecItemNotFound {
                 NSLog("Vervellum: keychain read for '\(account.rawValue)' failed with status \(status)")
@@ -270,7 +305,7 @@ final class KeychainStore: SecretStore {
     }
 
     private func deleteLegacy(_ account: SecretAccount) throws {
-        let status = SecItemDelete(legacyQuery(account: account) as CFDictionary)
+        let status = operations.delete(legacyQuery(account: account) as CFDictionary)
         guard status == errSecSuccess || status == errSecItemNotFound else {
             throw KeychainError.unexpectedStatus(status)
         }
@@ -288,7 +323,7 @@ final class KeychainStore: SecretStore {
             kSecValueData as String: value,
             kSecAttrLabel as String: label,
         ]
-        let updateStatus = SecItemUpdate(query as CFDictionary, update as CFDictionary)
+        let updateStatus = operations.update(query as CFDictionary, update as CFDictionary)
         if updateStatus == errSecSuccess { return }
         guard updateStatus == errSecItemNotFound else {
             throw KeychainError.unexpectedStatus(updateStatus)
@@ -297,14 +332,14 @@ final class KeychainStore: SecretStore {
         var insert = query
         insert[kSecValueData as String] = value
         insert[kSecAttrLabel as String] = label
-        let addStatus = SecItemAdd(insert as CFDictionary, nil)
+        let addStatus = operations.add(insert as CFDictionary, nil)
         switch addStatus {
         case errSecSuccess:
             return
         case errSecDuplicateItem:
             // Another writer inserted between the update miss and this add; the
             // item exists now, so a plain update finishes the write.
-            let retryStatus = SecItemUpdate(query as CFDictionary, update as CFDictionary)
+            let retryStatus = operations.update(query as CFDictionary, update as CFDictionary)
             guard retryStatus == errSecSuccess else {
                 throw KeychainError.unexpectedStatus(retryStatus)
             }

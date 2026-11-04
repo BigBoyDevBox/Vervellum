@@ -14,6 +14,11 @@ protocol SettingsStore: AnyObject {
     func setString(_ value: String?, for key: String)
     func setDouble(_ value: Double?, for key: String)
     func setBool(_ value: Bool?, for key: String)
+    /// Blocks until preceding writes are durable, and reports whether they made it.
+    /// Most settings tolerate best-effort persistence; provider credentials do not,
+    /// because a fixed Keychain replacement may be written only after its destination
+    /// will survive a process crash.
+    func synchronize() -> Bool
 }
 
 /// An in-memory store. Tests use it so they never touch the real user's settings.
@@ -30,6 +35,7 @@ final class MemorySettingsStore: SettingsStore {
     func setString(_ value: String?, for key: String) { values[key] = value }
     func setDouble(_ value: Double?, for key: String) { values[key] = value }
     func setBool(_ value: Bool?, for key: String) { values[key] = value }
+    func synchronize() -> Bool { true }
 }
 
 /// A JSON file of settings, written atomically.
@@ -71,6 +77,19 @@ final class JSONFileSettingsStore: SettingsStore {
     func setString(_ value: String?, for key: String) { write(value, key) }
     func setDouble(_ value: Double?, for key: String) { write(value, key) }
     func setBool(_ value: Bool?, for key: String) { write(value, key) }
+    /// Every ordinary setter already flushes. Repeating the complete atomic write here
+    /// gives credential transactions a checked durability boundary of their own — except
+    /// over a file that exists but no longer parses. The setters refuse to replace such
+    /// a file (see `write`), so the barrier fails closed rather than being the write
+    /// that does: a credential transaction then stops before deleting anything.
+    func synchronize() -> Bool {
+        if FileManager.default.fileExists(atPath: url.path) {
+            let data = try? Data(contentsOf: url)
+            let parsed = data.flatMap { (try? JSONSerialization.jsonObject(with: $0)) as? [String: Any] }
+            guard parsed != nil else { return false }
+        }
+        return flush()
+    }
 
     private func write(_ value: Any?, _ key: String) {
         // Linux users edit this file directly; preserve unrelated edits between writes.
@@ -86,21 +105,23 @@ final class JSONFileSettingsStore: SettingsStore {
                 "vervellum warning: settings are unreadable; no changes were saved\n".utf8))
             return
         }
-        flush()
+        _ = flush()
     }
 
-    private func flush() {
+    private func flush() -> Bool {
         do {
             try FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
                                                     withIntermediateDirectories: true)
             let data = try JSONSerialization.data(withJSONObject: values,
                                                   options: [.prettyPrinted, .sortedKeys])
             try data.write(to: url, options: [.atomic])
+            return true
         } catch {
             // Not fatal, and deliberately not surfaced: a settings write failing is a
             // disk problem the app cannot fix, and an alert per keystroke would be worse
             // than the lost setting.
             FileHandle.standardError.write(Data("vervellum warning: could not save settings\n".utf8))
+            return false
         }
     }
 }

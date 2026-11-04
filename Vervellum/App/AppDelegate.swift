@@ -183,6 +183,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 engine: self.engine,
                 store: self.store,
                 preferences: self.preferences,
+                secrets: self.secrets,
                 onOpenSettings: { [weak self] in self?.openSettings() },
                 onClose: { [weak self] in self?.panelController?.hide() }))
         }

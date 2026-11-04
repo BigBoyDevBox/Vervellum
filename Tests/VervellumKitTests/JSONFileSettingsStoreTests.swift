@@ -45,6 +45,19 @@ final class JSONFileSettingsStoreTests: XCTestCase {
         }
     }
 
+    /// The credential transaction's durability barrier must not be the write that
+    /// replaces a hand-damaged settings file the setters deliberately leave alone: it
+    /// reports failure, so the transaction stops before deleting any key.
+    func testTheDurabilityBarrierFailsClosedOverAnUnreadableFile() throws {
+        let running = JSONFileSettingsStore(url: file)
+        running.setString("old", for: "modelName")
+        XCTAssertTrue(running.synchronize())
+
+        try Data("{ unfinished".utf8).write(to: file)
+        XCTAssertFalse(running.synchronize())
+        XCTAssertEqual(try String(contentsOf: file, encoding: .utf8), "{ unfinished")
+    }
+
     func testDeletingTheFileDoesNotResurrectCachedKeys() throws {
         let running = JSONFileSettingsStore(url: file)
         running.setString("old", for: "modelName")

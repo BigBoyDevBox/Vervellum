@@ -19,6 +19,14 @@ import ServiceManagement
 /// never here, because this file is plain text in the user's preferences folder.
 final class Preferences: ObservableObject {
 
+    enum PersistenceError: LocalizedError {
+        case credentialCleanup
+
+        var errorDescription: String? {
+            "Could not prepare the Keychain cleanup journal. Nothing was saved."
+        }
+    }
+
     static let shared = Preferences()
 
     /// The settings shared with the Linux build.
@@ -66,13 +74,65 @@ final class Preferences: ObservableObject {
         static let panelWidth = "panelWidth"
         static let panelHeight = "panelHeight"
         static let dismissOnFocusLoss = "dismissOnFocusLoss"
+        static let pendingProviderCredentialCleanup = "pendingProviderCredentialCleanup"
     }
 
     // MARK: Shared settings, forwarded
 
-    var providerSettings: ProviderSettings {
-        get { core.providerSettings }
-        set { core.providerSettings = newValue }
+    /// Read-only at the macOS shell boundary: every production write must pass through
+    /// `commitProviderSettings`, which couples scalar mirrors to Keychain cleanup.
+    var providerSettings: ProviderSettings { core.providerSettings }
+
+    /// The provider editor's commit point. Unlike the ordinary convenience setter,
+    /// this reports a persistence failure so no fixed Keychain replacement can be
+    /// written while a restart could still recover the previous destination.
+    private func persistProviderSettings(_ settings: ProviderSettings) throws {
+        try core.persistProviderSettings(settings)
+    }
+
+    /// The one macOS entry point for a provider-list change, including selection-only
+    /// changes from the panel. Keeping the cleanup journal and durability closures here
+    /// prevents a new caller from accidentally bypassing the credential transaction.
+    @discardableResult
+    func commitProviderSettings(_ edited: ProviderSettings,
+                                edits: ProviderCredentialCommit.Edits = .init(),
+                                secrets: SecretStore) throws
+        -> ProviderCredentialCommit.Result {
+        try ProviderCredentialCommit.commit(
+            original: providerSettings,
+            edited: edited,
+            edits: edits,
+            secrets: secrets,
+            pendingCleanup: pendingProviderCredentialCleanup,
+            persistPendingCleanup: { try persistProviderCredentialCleanup($0) },
+            recordPendingCleanup: { pendingProviderCredentialCleanup = $0 },
+            persist: { try persistProviderSettings($0) })
+    }
+
+    /// Unreferenced Keychain account names whose deletion failed after a provider save.
+    ///
+    /// Account names are identifiers, not credentials, so this retry journal may live in
+    /// preferences. It is written before the settings commit and filtered against live
+    /// profile references on every retry, making either side of a crash safe.
+    private var pendingProviderCredentialCleanup: [SecretAccount] {
+        get {
+            let names = defaults.stringArray(forKey: Key.pendingProviderCredentialCleanup) ?? []
+            return names.map(SecretAccount.init(rawValue:))
+        }
+        set {
+            setProviderCredentialCleanup(newValue)
+        }
+    }
+
+    private func persistProviderCredentialCleanup(_ accounts: [SecretAccount]) throws {
+        setProviderCredentialCleanup(accounts)
+        guard defaults.synchronize() else { throw PersistenceError.credentialCleanup }
+    }
+
+    private func setProviderCredentialCleanup(_ accounts: [SecretAccount]) {
+        let names = Array(Set(accounts.map(\.rawValue))).sorted()
+        defaults.set(names.isEmpty ? nil : names,
+                     forKey: Key.pendingProviderCredentialCleanup)
     }
 
     var historyEnabled: Bool {
@@ -269,4 +329,5 @@ final class UserDefaultsSettingsStore: SettingsStore {
     func setString(_ value: String?, for key: String) { defaults.set(value, forKey: key) }
     func setDouble(_ value: Double?, for key: String) { defaults.set(value, forKey: key) }
     func setBool(_ value: Bool?, for key: String) { defaults.set(value, forKey: key) }
+    func synchronize() -> Bool { defaults.synchronize() }
 }
