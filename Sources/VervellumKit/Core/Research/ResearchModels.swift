@@ -43,6 +43,13 @@ struct Source: Codable, Identifiable, Equatable {
 /// encoded JSON text and re-parsed at call time. That also makes the turn Codable
 /// without a heterogeneous-dictionary encoder.
 struct PlannedSearch: Codable, Identifiable, Equatable {
+    /// Conventional JSON-Schema names for a web-search query, most explicit first.
+    /// This is shared with cross-backend projection so a name the process trail knows
+    /// how to show cannot silently drift from the names the runner knows how to carry.
+    static let queryArgumentNames = [
+        "search_query", "query", "q", "keyword", "keywords", "text",
+    ]
+
     var id: UUID = UUID()
     /// A short phrase naming what this search is meant to settle.
     var purpose: String
@@ -75,7 +82,7 @@ struct PlannedSearch: Codable, Identifiable, Equatable {
     /// falling back to the longest string value.
     var displayQuery: String {
         let arguments = self.arguments
-        for key in ["search_query", "query", "q", "keyword", "keywords", "text"] {
+        for key in Self.queryArgumentNames {
             if let value = arguments[key] as? String, !value.isEmpty { return value }
         }
         let strings = arguments.values.compactMap { $0 as? String }

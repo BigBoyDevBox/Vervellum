@@ -45,7 +45,7 @@ final class ResearchRunnerTests: XCTestCase {
         for index in settings.modelProfiles.indices {
             settings.modelProfiles[index].sendsImages = sendsImages
         }
-        // Deep mode asks every configured engine; the extra profiles share the
+        // Deep mode asks every compatible configured engine; the extra profiles share the
         // selected one's kind and carry no key, which SearXNG tolerates.
         for (offset, endpoint) in extraSearchEndpoints.enumerated() {
             settings.searchProfiles.append(
@@ -141,6 +141,37 @@ final class ResearchRunnerTests: XCTestCase {
 
     private static func searxng(_ hits: [(url: String, title: String)]) -> [String: Any] {
         ["results": hits.map { ["url": $0.url, "title": $0.title, "content": "A summary of \($0.title)."] }]
+    }
+
+    /// One complete MCP search-server script, parameterised by the schema it advertises.
+    /// The runner tests need the real handshake so projection is exercised against the
+    /// descriptor `SearchMCPClient` actually retained, not a higher-level fake.
+    private static func mcpReply(_ call: StubTransport.Call,
+                                 properties: [String: Any],
+                                 required: [String]) -> StubTransport.Reply {
+        guard let method = call.body?["method"] as? String else { return .unrouted }
+        if method == "notifications/initialized" { return .json([:]) }
+        guard let id = call.body?["id"] as? Int else { return .unrouted }
+
+        let result: [String: Any]
+        switch method {
+        case "initialize":
+            result = ["protocolVersion": "2025-03-26"]
+        case "tools/list":
+            result = ["tools": [[
+                "name": "web_search_prime",
+                "inputSchema": [
+                    "type": "object", "properties": properties,
+                    "required": required,
+                ] as [String: Any],
+            ]]]
+        case "tools/call":
+            result = ["structuredContent": Self.searxng([(
+                url: "https://mcp.example/hit", title: "MCP hit")])]
+        default:
+            return .unrouted
+        }
+        return .json(["jsonrpc": "2.0", "id": id, "result": result])
     }
 
     private static let assessment: [String: Any] = {
@@ -1398,7 +1429,7 @@ final class ResearchRunnerTests: XCTestCase {
                         "https://q3.example/hit"])
     }
 
-    /// Deep mode puts each planned search to every engine, and the engines answer at
+    /// Deep mode puts each planned search to every compatible engine, and the engines answer at
     /// the same time — the multiplier is the point of a second engine, and
     /// serialising it is latency bought with nothing.
     func testDeepResearchFansOutAcrossEngines() async throws {
@@ -1451,6 +1482,280 @@ final class ResearchRunnerTests: XCTestCase {
         // because evidence numbering follows insertion order.
         XCTAssertEqual(turn.sources.map { URLComponents(string: $0.url)?.host ?? $0.url },
                        ["search.test.example", "search2.test.example"])
+    }
+
+    /// Plans are written against the selected engine's schema. A spare with a different
+    /// schema must still receive the query, but never the selected provider's optional
+    /// filters: those names have no portable meaning and used to make the spare reject
+    /// every call before it reached its index.
+    func testDeepResearchProjectsAPlanAcrossDifferentEngineSchemas() async throws {
+        let transport = StubTransport { call in
+            switch call.kind {
+            case .fetch:
+                return .html("<p>Text for \(call.url.path).</p>")
+            case .json where call.url.path == "/search":
+                return .json(Self.searxng([(
+                    url: "https://searx.example/hit", title: "SearXNG hit")]))
+            case .json:
+                switch Self.stage(of: call) {
+                case .plan:
+                    return .completion(json: [
+                        "reading": "Compare two indexes.",
+                        "searches": [[
+                            "purpose": "find the measurement",
+                            "arguments": [
+                                "q": "stellar parallax",
+                                "language": "en",
+                                "categories": "science",
+                            ],
+                        ]],
+                    ])
+                case .deepPlan:
+                    return .completion(json: [
+                        "reading": "Nothing is missing.", "searches": [Any](),
+                    ])
+                case .assess:
+                    return .completion(json: Self.assessment)
+                default:
+                    return .unrouted
+                }
+            case .stream:
+                return .stream(["Both indexes found evidence [1, 2]."])
+            }
+        }
+        let command = StubCommandRunner { _ in
+            .kagiResults([(url: "https://kagi.example/hit", title: "Kagi hit")])
+        }
+        var configured = settings(searchKind: .searxng)
+        configured.searchProfiles.append(
+            SearchProfile(name: "Kagi", kind: .kagiCLI, endpoint: "kagi",
+                          keyAccount: "test.kagi"))
+        let runner = ResearchRunner(
+            environment: ResearchRunner.Environment(
+                settings: configured, modelKey: "model-key", searchKey: nil),
+            trace: ResearchTrace(sink: SilentLog()), transport: transport,
+            commandRunner: command, attachmentBytes: { _ in nil })
+
+        let turn = await runner.run(ResearchTurn(question: "How is parallax measured?"),
+                                    mode: .deep, history: [], onUpdate: { _ in })
+
+        XCTAssertEqual(turn.stage, .complete, turn.failure ?? "no failure recorded")
+        XCTAssertEqual(turn.sources.map(\.url),
+                       ["https://searx.example/hit", "https://kagi.example/hit"])
+        let searxCall = try XCTUnwrap(transport.calls.first { $0.url.path == "/search" })
+        let query = try XCTUnwrap(
+            URLComponents(url: searxCall.url, resolvingAgainstBaseURL: false)?.queryItems)
+        XCTAssertEqual(Dictionary(uniqueKeysWithValues: query.map { ($0.name, $0.value ?? "") })
+            .filter { $0.key != "format" },
+            ["q": "stellar parallax", "language": "en", "categories": "science"])
+        XCTAssertEqual(command.calls.map(\.arguments),
+                       [["search", "--format", "json", "--", "stellar parallax"]])
+    }
+
+    func testAProjectionIncompatibleSpareIsSkippedWithoutAnAttempt() async throws {
+        let properties: [String: Any] = [
+            "search_query": ["type": "string"],
+            "market": ["type": "string"],
+        ]
+        let transport = StubTransport { call in
+            if call.url.host == "mcp.test" {
+                return Self.mcpReply(call, properties: properties,
+                                     required: ["search_query", "market"])
+            }
+            switch call.kind {
+            case .fetch:
+                return .html("<p>Source text.</p>")
+            case .json where call.url.path == "/search":
+                return .json(Self.searxng([(
+                    url: "https://searx.example/hit", title: "SearXNG hit")]))
+            case .json:
+                switch Self.stage(of: call) {
+                case .plan:
+                    return .completion(json: Self.plan("stellar parallax"))
+                case .deepPlan:
+                    return .completion(json: [
+                        "reading": "Nothing is missing.", "searches": [Any](),
+                    ])
+                case .assess:
+                    return .completion(json: Self.assessment)
+                default:
+                    return .unrouted
+                }
+            case .stream:
+                return .stream(["The selected engine found evidence [1]."])
+            }
+        }
+        let spare = SearchProfile(name: "MCP", kind: .mcp,
+                                  endpoint: "https://mcp.test",
+                                  keyAccount: "test.mcp")
+        var configured = settings(searchKind: .searxng)
+        configured.searchProfiles.append(spare)
+        let log = RecordingLog()
+        let runner = ResearchRunner(
+            environment: ResearchRunner.Environment(
+                settings: configured, modelKey: "model-key", searchKey: nil,
+                searchKeys: [spare.id: "mcp-key"]),
+            trace: ResearchTrace(sink: log), transport: transport,
+            attachmentBytes: { _ in nil })
+
+        let turn = await runner.run(ResearchTurn(question: "How is parallax measured?"),
+                                    mode: .deep, history: [], onUpdate: { _ in })
+
+        XCTAssertEqual(turn.stage, .complete, turn.failure ?? "no failure recorded")
+        XCTAssertEqual(turn.searchesCompleted, 1)
+        XCTAssertFalse(transport.calls.contains {
+            $0.body?["method"] as? String == "tools/call"
+        })
+        XCTAssertFalse(log.messages.contains { $0.contains("Search 1 via MCP server started") })
+        XCTAssertFalse(log.messages.contains { $0.contains("Search 1 via MCP server failed") })
+    }
+
+    func testAnUnprojectablePairDoesNotRetireTheSpareOrStallProgress() async throws {
+        let properties: [String: Any] = ["search_query": ["type": "string"]]
+        let transport = StubTransport { call in
+            if call.url.host == "mcp.test" {
+                return Self.mcpReply(call, properties: properties,
+                                     required: ["search_query"])
+            }
+            switch call.kind {
+            case .fetch:
+                return .html("<p>Source text.</p>")
+            case .json where call.url.path == "/search":
+                let query = URLComponents(url: call.url, resolvingAgainstBaseURL: false)?
+                    .queryItems?.first { $0.name == "q" }?.value ?? "unknown"
+                return .json(Self.searxng([(
+                    url: "https://searx.example/\(query)", title: "SearXNG hit")]))
+            case .json:
+                switch Self.stage(of: call) {
+                case .plan:
+                    return .completion(json: [
+                        "reading": "Try two query values.",
+                        "searches": [
+                            ["purpose": "bad value", "arguments": ["q": 7]],
+                            ["purpose": "good value",
+                             "arguments": ["q": "usable query"]],
+                        ],
+                    ])
+                case .deepPlan:
+                    return .completion(json: [
+                        "reading": "Nothing is missing.", "searches": [Any](),
+                    ])
+                case .assess:
+                    return .completion(json: Self.assessment)
+                default:
+                    return .unrouted
+                }
+            case .stream:
+                return .stream(["The valid searches found evidence [1]."])
+            }
+        }
+        let spare = SearchProfile(name: "MCP", kind: .mcp,
+                                  endpoint: "https://mcp.test",
+                                  keyAccount: "test.mcp")
+        var configured = settings(searchKind: .searxng)
+        configured.searchProfiles.append(spare)
+        let log = RecordingLog()
+        let runner = ResearchRunner(
+            environment: ResearchRunner.Environment(
+                settings: configured, modelKey: "model-key", searchKey: nil,
+                searchKeys: [spare.id: "mcp-key"]),
+            trace: ResearchTrace(sink: log), transport: transport,
+            attachmentBytes: { _ in nil })
+
+        let turn = await runner.run(ResearchTurn(question: "How is parallax measured?"),
+                                    mode: .deep, history: [], onUpdate: { _ in })
+
+        XCTAssertEqual(turn.stage, .complete, turn.failure ?? "no failure recorded")
+        XCTAssertEqual(turn.searchesCompleted, 2)
+        let calls = transport.calls.filter {
+            $0.body?["method"] as? String == "tools/call"
+        }
+        XCTAssertEqual(calls.count, 1)
+        let params = try XCTUnwrap(calls.first?.body?["params"] as? [String: Any])
+        let arguments = try XCTUnwrap(params["arguments"] as? [String: Any])
+        XCTAssertEqual(arguments as? [String: String], ["search_query": "usable query"])
+        XCTAssertFalse(log.messages.contains { $0.contains("Search 1 via MCP server started") })
+        XCTAssertFalse(log.messages.contains { $0.contains("Search 1 via MCP server failed") })
+    }
+
+    /// The planner-side half of `testAProjectionIncompatibleSpareIsSkippedWithoutAnAttempt`.
+    /// A selected engine whose schema requires an unrecognised string (`filters`) beside
+    /// an optional recognised one (`q`) used to donate `q`'s value to every spare as
+    /// though it were the query, silently — the required field may hold the real query
+    /// under a provider-specific name. Both sides of projection must now reject the
+    /// same schemas, so the spare is retired rather than fed a guess.
+    func testAPlannerRequiringAnUnrecognisedStringRetiresItsSpares() async throws {
+        let transport = StubTransport { call in
+            if call.url.host == "mcp.test" {
+                return Self.mcpReply(call,
+                                     properties: ["q": ["type": "string"],
+                                                  "filters": ["type": "string"]],
+                                     required: ["filters"])
+            }
+            switch call.kind {
+            case .fetch:
+                return .html("<p>Source text.</p>")
+            case .json where call.url.path == "/search":
+                return .json(Self.searxng([(
+                    url: "https://searx.example/hit", title: "SearXNG hit")]))
+            case .json:
+                switch Self.stage(of: call) {
+                case .plan:
+                    return .completion(json: [
+                        "reading": "Compare two indexes.",
+                        "searches": [[
+                            "purpose": "find the measurement",
+                            "arguments": [
+                                "q": "stellar parallax",
+                                "filters": "science",
+                            ],
+                        ]],
+                    ])
+                case .deepPlan:
+                    return .completion(json: [
+                        "reading": "Nothing is missing.", "searches": [Any](),
+                    ])
+                case .assess:
+                    return .completion(json: Self.assessment)
+                default:
+                    return .unrouted
+                }
+            case .stream:
+                return .stream(["The selected engine found evidence [1]."])
+            }
+        }
+        var configured = settings(searchKind: .mcp, searchEndpoint: "https://mcp.test")
+        configured.searchProfiles.append(
+            SearchProfile(name: "SearXNG", kind: .searxng, endpoint: "https://search.test",
+                          keyAccount: "test.searx"))
+        let log = RecordingLog()
+        let runner = ResearchRunner(
+            environment: ResearchRunner.Environment(
+                settings: configured, modelKey: "model-key", searchKey: "mcp-key"),
+            trace: ResearchTrace(sink: log), transport: transport,
+            attachmentBytes: { _ in nil })
+
+        let turn = await runner.run(ResearchTurn(question: "How is parallax measured?"),
+                                     mode: .deep, history: [], onUpdate: { _ in })
+
+        XCTAssertEqual(turn.stage, .complete, turn.failure ?? "no failure recorded")
+        XCTAssertEqual(turn.searchesCompleted, 1)
+        XCTAssertEqual(turn.sources.map(\.url), ["https://mcp.example/hit"])
+        // The spare was never asked: no SearXNG call left the runner, and the trace
+        // says why in the words every schema-level skip uses.
+        XCTAssertFalse(transport.calls.contains { $0.url.path == "/search" })
+        XCTAssertTrue(log.messages.contains {
+            $0.contains("Search 1 skipped on SearXNG")
+                && $0.contains("not compatible with the plan")
+        }, "the skip must be attributed to the schema, not a per-step value")
+        // The selected engine received its own plan verbatim, filters included.
+        let calls = transport.calls.filter {
+            $0.body?["method"] as? String == "tools/call"
+        }
+        let params = try XCTUnwrap(calls.first?.body?["params"] as? [String: Any])
+        let arguments = try XCTUnwrap(params["arguments"] as? [String: Any])
+        XCTAssertEqual(arguments as? [String: String],
+                       ["q": "stellar parallax", "filters": "science"])
     }
 
     /// The failure mode the fan-out introduces: one engine failing one query must

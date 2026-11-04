@@ -153,10 +153,10 @@ enum ResearchLevel: String, Codable, CaseIterable, Identifiable, Equatable {
     /// read by someone deciding whether to spend money.
     ///
     /// `engines` is why `settings` is a parameter rather than this being a stored
-    /// string: a deep round puts every planned search to *every* configured engine, so
-    /// the request ceiling is rounds × searches × engines. `ResearchRunner.maxSearches`
-    /// says in as many words that this should be stated plainly rather than discovered
-    /// on a metered account.
+    /// string: a deep round puts every planned search to every configured engine whose
+    /// schema can express it. The worst-case request ceiling is still rounds × searches
+    /// × engines. `ResearchRunner.maxSearches` says in as many words that this should be
+    /// stated plainly rather than discovered on a metered account.
     func cost(_ settings: ProviderSettings) -> String {
         switch self {
         case .direct:
@@ -167,9 +167,13 @@ enum ResearchLevel: String, Codable, CaseIterable, Identifiable, Equatable {
                 + "\(evidence(ResearchContext.maxEvidenceCharacters)) evidence budget."
         case .deep:
             let engines = max(1, settings.searchProfiles.count)
+            // A lone engine is the selected one, and the plan is written against the
+            // selected engine's schema, so nothing about it can be incompatible: saying
+            // "when its schema is compatible" here would describe a case that cannot
+            // occur and undercut the estimate it accompanies.
             let fanOut = engines == 1
-                ? "your one configured search engine"
-                : "each of your \(engines) configured search engines"
+                ? "your configured search engine"
+                : "every compatible search engine (up to all \(engines) you configured)"
             return "Up to \(ResearchRunner.maxDeepRounds) rounds of "
                 + "\(ResearchRunner.maxSearches) searches, every one of them put to "
                 + "\(fanOut), and up to \(PageReaderFactory.maxDeepPages) pages read, on a "
