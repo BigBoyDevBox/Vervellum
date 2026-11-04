@@ -3,8 +3,11 @@ import Foundation
 // The one platform import under `Core/`, and it is the C library rather than a
 // framework: `kill(2)` exists on both platforms and Foundation's `Process` exposes only
 // `terminate()`, which sends a signal a program may ignore. See `terminationGrace` for
-// what goes wrong without it. Nothing else in this directory imports either module, and
-// nothing here uses them for anything but the escalation below.
+// what goes wrong without it. On Linux two more C calls work around corelibs-foundation's
+// `Process`: `pthread_sigmask(3)` so a child starts with no signals blocked, and
+// `waitid(2)` so the direct child's exit is seen when it happens — see
+// `launchWithUnblockedSignals` and `pollDirectChild`. Nothing else in this directory
+// imports either module, and nothing here uses them for anything else.
 #if canImport(Darwin)
 import Darwin
 #elseif canImport(Glibc)
@@ -113,6 +116,19 @@ final class CommandRunner: CommandRunning {
     /// notification. This short grace separates those cases without making the
     /// descendant part of the command Vervellum launched.
     static let postExitDrainGrace: TimeInterval = 0.25
+
+    #if canImport(Glibc)
+    /// How often to ask the kernel whether the direct child has exited, on Linux.
+    ///
+    /// corelibs-foundation learns that a child ended when a socket the child inherited
+    /// reaches end-of-file, and every descendant inherits that socket too. Its
+    /// termination handler therefore waits for the *last* descendant, which is exactly
+    /// the lifetime coupling the drain grace above exists to refuse. A non-reaping
+    /// `waitid` sees the direct child's own exit; Foundation still reaps it later. A
+    /// search command lives for seconds, so polling at this rate costs a few dozen
+    /// wake-ups and adds at most this much latency to a result.
+    static let directChildPollInterval: TimeInterval = 0.05
+    #endif
 
     // MARK: Resolving
 
@@ -252,15 +268,18 @@ final class CommandRunner: CommandRunning {
         private var timeoutItem: DispatchWorkItem?
         private var postExitItem: DispatchWorkItem?
         private var escalationItem: DispatchWorkItem?
+        #if canImport(Glibc)
+        private var directChildPollItem: DispatchWorkItem?
+        #endif
         private var launched = false
         private var childExited = false
         private var exitStatus: Int32?
-        private var exitReason: Process.TerminationReason?
         private var sawEOF = false
         private var output = Data()
         private var stopped: Reason?
-        /// True only when the timeout found the direct child already stopped. A child
-        /// that exits zero *because* it handled our SIGTERM still timed out.
+        /// True only when the timeout found the direct child already stopped, before any
+        /// signal was sent: that exit, clean or not, was the command's own. A child that
+        /// exits zero *because* it handled our SIGTERM still timed out.
         private var timeoutFoundNaturalExit = false
         private var completed = false
         private var continuation: CheckedContinuation<(status: Int32, output: Data), Error>?
@@ -296,13 +315,16 @@ final class CommandRunner: CommandRunning {
             process.terminationHandler = { [weak self] ended in
                 guard let self else { return }
                 let status = ended.terminationStatus
-                let reason = ended.terminationReason
                 eventQueue.async { [self] in
-                    self.childDidExit(status: status, reason: reason)
+                    self.childDidExit(status: status)
                 }
             }
             do {
+                #if canImport(Glibc)
+                try launchWithUnblockedSignals()
+                #else
                 try process.run()
+                #endif
             } catch {
                 process.terminationHandler = nil
                 // The name and the foreign error are absent: both came from the
@@ -319,6 +341,9 @@ final class CommandRunner: CommandRunning {
             // writer open would suppress EOF even for a command with no descendants.
             try? pipe.fileHandleForWriting.close()
             startReading()
+            #if canImport(Glibc)
+            scheduleDirectChildPoll()
+            #endif
 
             let timeoutItem = DispatchWorkItem { [weak self] in
                 self?.stopOnEventQueue(because: .timedOut)
@@ -326,6 +351,60 @@ final class CommandRunner: CommandRunning {
             self.timeoutItem = timeoutItem
             eventQueue.asyncAfter(deadline: .now() + max(0, timeout), execute: timeoutItem)
         }
+
+        #if canImport(Glibc)
+        /// Starts the child with no signals blocked.
+        ///
+        /// corelibs-foundation spawns without `POSIX_SPAWN_SETSIGMASK`, so the child
+        /// inherits the launching thread's signal mask, and this runs on a libdispatch
+        /// worker, which blocks nearly every signal. A child started from here would keep
+        /// `SIGTERM` pending forever: `terminate()` would never be honoured, and every
+        /// stop would wait out `terminationGrace` for `SIGKILL`. This thread's own mask
+        /// is restored as soon as the spawn returns. Foundation's process-manager thread,
+        /// which the first launch creates, keeps the empty mask it inherits here — the
+        /// mask it would have had if the first launch had come from any ordinary thread.
+        /// Either thread can therefore receive a process-directed signal. Vervellum
+        /// installs no signal handlers, so that changes nothing today; a handler added
+        /// later must not assume which thread it runs on.
+        private func launchWithUnblockedSignals() throws {
+            var unblocked = sigset_t()
+            var previous = sigset_t()
+            sigemptyset(&unblocked)
+            pthread_sigmask(SIG_SETMASK, &unblocked, &previous)
+            defer { pthread_sigmask(SIG_SETMASK, &previous, nil) }
+            try process.run()
+        }
+
+        private func scheduleDirectChildPoll() {
+            let item = DispatchWorkItem { [weak self] in
+                guard let self else { return }
+                directChildPollItem = nil
+                pollDirectChild(rescheduling: true)
+            }
+            directChildPollItem = item
+            eventQueue.asyncAfter(
+                deadline: .now() + CommandRunner.directChildPollInterval, execute: item)
+        }
+
+        /// Reports the direct child's exit as soon as the kernel has it, without reaping
+        /// it. See `directChildPollInterval` for why Foundation's own report can arrive
+        /// only when the last descendant exits. `WNOWAIT` leaves the child waitable, so
+        /// Foundation still reaps it, and its pid cannot be reused before then.
+        private func pollDirectChild(rescheduling: Bool) {
+            guard launched, !childExited, !completed else { return }
+            var info = siginfo_t()
+            if waitid(P_PID, id_t(process.processIdentifier), &info,
+                      WEXITED | WNOHANG | WNOWAIT) == 0,
+               info._sifields._sigchld.si_pid == process.processIdentifier {
+                // The exit code, or the signal number, as Foundation reports it.
+                childDidExit(status: info._sifields._sigchld.si_status)
+                return
+            }
+            // Still running, or already reaped by Foundation, whose handler is then on
+            // its way. Either way, keep asking only while Foundation calls it running.
+            if rescheduling, process.isRunning { scheduleDirectChildPoll() }
+        }
+        #endif
 
         private func startReading() {
             let handle = pipe.fileHandleForReading
@@ -347,14 +426,19 @@ final class CommandRunner: CommandRunning {
 
         /// Reads no more than the dispatch source announced, so this event handler can
         /// never park waiting for a writer. More bytes produce another source event.
+        ///
+        /// Zero is the exception: it means the write side has hung up, every copy of the
+        /// writer included, so reading on to end-of-file cannot park. It must not be
+        /// taken as end-of-file itself. Darwin reports zero only once the buffer is
+        /// empty, but Linux's libdispatch reports an epoll hang-up as zero even with
+        /// bytes still buffered — a short command's last chunk and its exit arrive as one
+        /// event, and stopping at the zero would drop that tail.
         private func readAnnounced(_ announced: UInt) {
             guard !completed, !sawEOF else { return }
-            guard announced > 0 else {
-                reachedEOF()
-                return
-            }
 
-            var remaining = announced > UInt(Int.max) ? Int.max : Int(announced)
+            var remaining = announced == 0 || announced > UInt(Int.max)
+                ? Int.max
+                : Int(announced)
             while remaining > 0, !completed, !sawEOF {
                 // Keep one byte beyond the limit so crossing it is observable, without
                 // overflowing when a caller deliberately uses `Int.max` as no limit.
@@ -375,6 +459,9 @@ final class CommandRunner: CommandRunning {
                     remaining -= chunk.count
                     if output.count > limit {
                         stopOnEventQueue(because: .tooMuchOutput)
+                        // Nothing more is wanted, even when an earlier stop already
+                        // owns the outcome and this one was not recorded.
+                        cancelReading()
                         return
                     }
                 } catch {
@@ -391,18 +478,23 @@ final class CommandRunner: CommandRunning {
             finishIfSettled()
         }
 
-        private func childDidExit(status: Int32, reason: Process.TerminationReason) {
+        private func childDidExit(status: Int32) {
+            // On Linux both `pollDirectChild` and Foundation report the exit; the first
+            // report is the one that counts.
+            guard !childExited else { return }
             childExited = true
+            #if canImport(Glibc)
+            directChildPollItem?.cancel()
+            directChildPollItem = nil
+            #endif
             exitStatus = status
-            exitReason = reason
             timeoutItem?.cancel()
             timeoutItem = nil
             escalationItem?.cancel()
             escalationItem = nil
             guard !completed else { return }
 
-            if let stopped,
-               !(stopped == .timedOut && timeoutFoundNaturalExit && reason == .exit) {
+            if let stopped = decidingStop {
                 complete(throwing: failure(stopped))
                 return
             }
@@ -437,12 +529,22 @@ final class CommandRunner: CommandRunning {
         private func finishIfSettled(pipeMayRemainOpen: Bool = false) {
             guard childExited, sawEOF || pipeMayRemainOpen,
                   let status = exitStatus else { return }
-            if let stopped,
-               !(stopped == .timedOut && timeoutFoundNaturalExit && exitReason == .exit) {
+            if let stopped = decidingStop {
                 complete(throwing: failure(stopped))
+            } else if output.count > limit {
+                // Only a natural exit at the deadline gets here: the reader stays open
+                // through its drain, and a crossing there cannot record its own stop
+                // because the timeout's is already recorded. The limit still holds.
+                complete(throwing: failure(.tooMuchOutput))
             } else {
                 complete(returning: (status, output))
             }
+        }
+
+        /// The recorded stop, unless it is a timeout that found the direct child already
+        /// gone — then the command's own exit decides the outcome.
+        private var decidingStop: Reason? {
+            stopped == .timedOut && timeoutFoundNaturalExit ? nil : stopped
         }
 
         /// Records why the command is being stopped and stops it. The first reason wins:
@@ -454,6 +556,15 @@ final class CommandRunner: CommandRunning {
 
         private func stopOnEventQueue(because reason: Reason) {
             guard !completed, stopped == nil else { return }
+            #if canImport(Glibc)
+            // Foundation's `isRunning`, used below to recognise a natural exit at the
+            // deadline, stays true on Linux until the last descendant exits. Ask the
+            // kernel first, so the exit is recorded before the timeout is.
+            if reason == .timedOut {
+                pollDirectChild(rescheduling: false)
+                guard !completed else { return }
+            }
+            #endif
             stopped = reason
             timeoutItem?.cancel()
             timeoutItem = nil
@@ -461,9 +572,10 @@ final class CommandRunner: CommandRunning {
             // A deadline and a natural exit can become runnable together. Preserve the
             // direct child's final pipe events while its termination callback catches
             // up. This flag is set only before Vervellum sends SIGTERM: a command that
-            // handles our signal by exiting zero still exceeded its deadline.
+            // handles our signal by exiting zero still exceeded its deadline, while one
+            // that had already died of a signal of its own did not run too long.
             if reason == .timedOut, launched {
-                if childExited, exitReason == .exit {
+                if childExited {
                     timeoutFoundNaturalExit = true
                     return
                 }
@@ -515,22 +627,16 @@ final class CommandRunner: CommandRunning {
         /// Resumes the caller once and cancels every event that no longer owns work.
         private func complete(returning value: (status: Int32, output: Data)) {
             guard !completed else { return }
-            completed = true
-            timeoutItem?.cancel()
-            timeoutItem = nil
-            postExitItem?.cancel()
-            postExitItem = nil
-            escalationItem?.cancel()
-            escalationItem = nil
-            cancelReading()
-            try? pipe.fileHandleForWriting.close()
-            let continuation = self.continuation
-            self.continuation = nil
-            continuation?.resume(returning: value)
+            takeContinuation()?.resume(returning: value)
         }
 
         private func complete(throwing error: Error) {
             guard !completed else { return }
+            takeContinuation()?.resume(throwing: error)
+        }
+
+        private func takeContinuation()
+            -> CheckedContinuation<(status: Int32, output: Data), Error>? {
             completed = true
             timeoutItem?.cancel()
             timeoutItem = nil
@@ -538,11 +644,15 @@ final class CommandRunner: CommandRunning {
             postExitItem = nil
             escalationItem?.cancel()
             escalationItem = nil
+            #if canImport(Glibc)
+            directChildPollItem?.cancel()
+            directChildPollItem = nil
+            #endif
             cancelReading()
             try? pipe.fileHandleForWriting.close()
             let continuation = self.continuation
             self.continuation = nil
-            continuation?.resume(throwing: error)
+            return continuation
         }
     }
 }

@@ -104,6 +104,19 @@ final class CommandRunnerTests: XCTestCase {
         XCTAssertLessThan(elapsed, CommandRunner.terminationGrace + 1.5)
     }
 
+    #if os(Linux)
+    /// corelibs-foundation spawns with the launching thread's signal mask, and the
+    /// runner launches from a libdispatch worker, which blocks nearly every signal. A
+    /// child that inherited that mask would never act on `terminate()`'s SIGTERM.
+    func testTheChildStartsWithNoSignalsBlocked() async throws {
+        let result = try await run("/bin/grep", ["^SigBlk:", "/proc/self/status"])
+
+        XCTAssertEqual(result.status, 0)
+        XCTAssertEqual(String(data: result.output, encoding: .utf8),
+                       "SigBlk:\t0000000000000000\n")
+    }
+    #endif
+
     func testCancellationStopsAStillRunningCommand() async throws {
         let task = Task {
             try await self.run("/bin/sleep", ["5"], timeout: 10)
