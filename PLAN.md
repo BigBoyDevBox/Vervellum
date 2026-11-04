@@ -38,8 +38,9 @@ URLs, domains and markdown links outright, and requires evidence to be reference
 
 Only numbered citations can become actionable answer links. Both renderers remove
 model-origin link behavior, then resolve valid numbers through the retrieved source
-list. Hierarchical and common actionable URIs, scheme-relative addresses, bare domains,
-and Markdown destinations or autolinks are flagged; assessment fields containing them
+list. Hierarchical and common actionable URIs, scheme-relative addresses, bare domains
+or IP literals, email addresses, and Markdown destinations or autolinks are flagged;
+assessment fields containing them
 are discarded. Invalid numbers remain text.
 Shared placeholder masking preserves citation placement, including through incomplete
 markdown. This establishes provenance, not whether the cited evidence supports the claim.

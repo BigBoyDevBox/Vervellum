@@ -35,6 +35,8 @@ enum CitationValidator {
         /// Citation numbers outside `1...sourceCount` that the model invented.
         var outOfRangeCitations: [Int]
         /// Direct destinations the model wrote despite being told to cite by number.
+        /// Populated only for document scope; inline scope exists solely for the
+        /// renderer's citation masking and deliberately skips destination scanning.
         var forbiddenLinks: [String]
 
         var isClean: Bool { outOfRangeCitations.isEmpty && forbiddenLinks.isEmpty }
@@ -58,8 +60,13 @@ enum CitationValidator {
         var cited: Set<Int> = []
         var outOfRange: [Int] = []
         let code = scope == .document ? codeRanges(in: answer) : inlineCodeRanges(in: answer[...])
-        let forbiddenLinks = ForbiddenLinkScanner.links(
-            in: answer, excludingMarkdownSyntaxIn: code)
+        // Inline validation runs for every rendered Markdown block while an answer is
+        // streaming, and its caller uses only citation spans. Destination policy is a
+        // final-document decision; scanning here would repeat several regex walks on
+        // every token-driven render and discard the result.
+        let forbiddenLinks = scope == .document
+            ? ForbiddenLinkScanner.links(in: answer, excludingMarkdownSyntaxIn: code)
+            : []
 
         guard let regex = citationRegex else {
             return Result(spans: [.text(answer)], citedSourceIndices: [],

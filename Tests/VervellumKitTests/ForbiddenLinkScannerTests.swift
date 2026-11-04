@@ -14,10 +14,20 @@ final class ForbiddenLinkScannerTests: XCTestCase {
             "http://[::1]",
             "https://[2001:db8::1].",
             "_https://example.com_",
+            "FTP://evil.example/path",
+            "gemini://evil.example",
+            "x://host",
+            "abcdefghijklmnopqrstuvwxyzabcdefghi://host",
             "//example.com/path",
             "//[2001:db8::1]/path",
             "//[::1]",
             "//user@example.com/path",
+            "//intranet-server/guide",
+            "//例子.中国/path",
+            "//192.0.2.1/path",
+            "198.51.100.4/details",
+            "[2001:db8::1]",
+            "[::ffff:192.0.2.1]",
             "[label](/relative/path)",
             "See[docs](/relative/path)",
             "[](/relative/path)",
@@ -39,6 +49,8 @@ final class ForbiddenLinkScannerTests: XCTestCase {
             "mailto:user@example.com",
             "<custom+app:open/item>",
             "<user@example.com>",
+            "user@example.com",
+            "用户@例子.中国",
             "file:/private/report.txt",
             "data:text/plain,private",
             "tel:+41441234567",
@@ -53,6 +65,14 @@ final class ForbiddenLinkScannerTests: XCTestCase {
             "example.game",
             "example.link",
             "example.page",
+            "例子.中国",
+            "service.localhost",
+            "www.evil.host",
+            "evil.photography",
+            "evil.unlisted/path",
+            "EVIL.COM",
+            "com.evil.com",
+            "evil.id",
         ]
         for example in examples {
             XCTAssertFalse(ForbiddenLinkScanner.links(in: example).isEmpty, example)
@@ -61,10 +81,14 @@ final class ForbiddenLinkScannerTests: XCTestCase {
 
     func testIgnoresHighFrequencyDomainAndMarkdownLookalikes() {
         let examples = [
-            "3.14", "v1.2.3", "README.md", "package.json", "archive.tar.gz", "drawing.ai",
-            "main.swift", "build.sh", "Vervellum.app", "movie.mov", "alice@example.com",
-            "ASP.NET", "VB.NET", "ADO.NET",
-            "object.property", "// comment", "/usr/local/bin", "[1][2]", "[term][case]",
+            "3.14", "v1.2.3", "v1.2.3.4", "1.2.3.444",
+            "README.md", "package.json", "archive.tar.gz", "drawing.ai", "download.zip",
+            "config.prod.json", "docs/README.md", "main.swift", "build.sh",
+            "Vervellum.app", "movie.mov",
+            "Foundation.URL", "os.Logger", "ASP.NET", "VB.NET", "ADO.NET",
+            "tool@1.2.34", "user@localhost",
+            "// comment", "//TODO", "/usr/local/bin",
+            "[1:2]", "[a:b]", "//[1:2]", "[1][2]", "[term][case]",
             "[1]: This source says the claim is supported",
             "[1]", "[1, 2]", #"\[label](/escaped)"#, "example.com_value",
         ]
@@ -74,15 +98,16 @@ final class ForbiddenLinkScannerTests: XCTestCase {
     }
 
     func testMarkdownShapedCodeIsSyntaxButDestinationsInCodeStillFail() {
-        let text = "Use `[key](value)` and `<user@example.com>` here.\n"
+        let text = "Use `[key](value)` and `<custom+app:open/item>` here.\n"
             + "```swift\n[label](value)\n```"
         XCTAssertTrue(ForbiddenLinkScanner.links(
             in: text, excludingMarkdownSyntaxIn: CitationValidator.codeRanges(in: text)).isEmpty)
 
-        let linkedCode = "`example.com/private` and ```\nhttps://example.org/private\n```"
+        let linkedCode = "`example.com/private`, `user@example.org` and "
+            + "```\nhttps://example.org/private\n```"
         XCTAssertEqual(ForbiddenLinkScanner.links(
             in: linkedCode,
-            excludingMarkdownSyntaxIn: CitationValidator.codeRanges(in: linkedCode)).count, 2)
+            excludingMarkdownSyntaxIn: CitationValidator.codeRanges(in: linkedCode)).count, 3)
     }
 
     func testInlineCodeInsideALinkLabelDoesNotHideTheOuterDestination() {
@@ -111,6 +136,22 @@ final class ForbiddenLinkScannerTests: XCTestCase {
                        ["https://example.com/a"])
         XCTAssertEqual(ForbiddenLinkScanner.links(in: "See <https://example.com/a>."),
                        ["<https://example.com/a>"])
+    }
+
+    /// A `)` with no `(` inside the destination is sentence punctuation; a balanced
+    /// pair is part of the address itself.
+    func testOnlyUnbalancedClosingParenthesesAreTrimmed() {
+        XCTAssertEqual(ForbiddenLinkScanner.links(
+            in: "See https://en.wikipedia.org/wiki/Mercury_(planet)."),
+                       ["https://en.wikipedia.org/wiki/Mercury_(planet)"])
+        XCTAssertEqual(ForbiddenLinkScanner.links(
+            in: "(See https://example.com/a)."), ["https://example.com/a"])
+    }
+
+    func testRepeatedDestinationsAreReportedOnce() {
+        XCTAssertEqual(ForbiddenLinkScanner.links(
+            in: "(See https://example.com/a) and https://example.com/a."),
+                       ["https://example.com/a"])
     }
 
     func testManyDistinctMatchesAreAllReported() {

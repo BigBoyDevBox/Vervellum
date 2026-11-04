@@ -92,6 +92,17 @@ final class CitationValidatorTests: XCTestCase {
             "See [the documentation](/private/path) for details.",
             "See example.com/a for details.",
             "Even `example.com/private` inside code is still a model-written link.",
+            "See HTTPS://evil.example/path or FTP://evil.example/path.",
+            "Fetch gemini://evil.example, x://host, or mailto:user@evil.example.",
+            "See //evil.example/path or //intranet-server/guide.",
+            "See //例子.中国/path or //192.0.2.1/path.",
+            "See 198.51.100.4/details, [2001:db8::1], or [::ffff:192.0.2.1].",
+            "See [the section](#details) or [the `API`](#details).",
+            "Contact <user@evil.example>, user@evil.com, or 用户@例子.中国.",
+            "See 例子.中国, service.localhost, or www.evil.host.",
+            "See evil.photography, evil.unlisted/path, or evil.id.",
+            "See EVIL.COM or com.evil.com.",
+            "Reference definition:\n[docs]: ./relative-page",
         ] {
             let result = CitationValidator.validate(answer: answer, sourceCount: 1)
             XCTAssertFalse(result.forbiddenLinks.isEmpty, answer)
@@ -100,13 +111,16 @@ final class CitationValidatorTests: XCTestCase {
     }
 
     /// Domain-like punctuation occurs constantly in legitimate prose and code. The
-    /// link gate must stay precise enough that filenames, versions, emails, member
-    /// access and a comment opener do not put a trust warning on an answer.
+    /// link gate must stay precise enough that filenames, versions, member access and
+    /// a comment opener do not put a trust warning on an answer.
     func testDomainScanDoesNotFlagCommonNonLinks() {
         let answer = """
-            Version 1.2.3 uses README.md, package.json, archive.tar.gz, main.swift,
-            build.sh and Vervellum.app. Email me@example.com. Call object.property,
-            `items[i](x)`, or write // comment. An escaped \\[label](/not-a-link) is text.
+            Version v1.2.3.4 uses README.md, package.json, archive.tar.gz, main.swift,
+            build.sh, download.zip and Vervellum.app. Call Foundation.URL, os.Logger,
+            render(), `items[i](x)`, or write // comment or //TODO. Ratios [1:2] and
+            [a:b], a tool@1.2.34 package version, and an invalid 1.2.3.444 address are
+            not destinations. Neither is //[1:2]. An escaped \\[label](/not-a-link)
+            is text, and [Note]: this is ordinary prose.
             ```swift
             [key](value)
             ```
@@ -114,6 +128,40 @@ final class CitationValidatorTests: XCTestCase {
         let result = CitationValidator.validate(answer: answer, sourceCount: 0)
         XCTAssertTrue(result.forbiddenLinks.isEmpty, "\(result.forbiddenLinks)")
         XCTAssertTrue(result.isClean)
+    }
+
+    /// Repeated destinations are reported once, and a `)` that belongs to the
+    /// sentence — rather than to a balanced pair inside the address — is trimmed.
+    func testRepeatedDestinationsAreReportedOnceWithoutProsePunctuation() {
+        let answer = "(See https://evil.example/path) and https://evil.example/path."
+
+        XCTAssertEqual(CitationValidator.validate(answer: answer, sourceCount: 0).forbiddenLinks,
+                       ["https://evil.example/path"])
+    }
+
+    func testBalancedParenthesesInsideAURLArePreserved() {
+        let answer = "See https://en.wikipedia.org/wiki/Mercury_(planet)."
+
+        XCTAssertEqual(CitationValidator.validate(answer: answer, sourceCount: 0).forbiddenLinks,
+                       ["https://en.wikipedia.org/wiki/Mercury_(planet)"])
+    }
+
+    /// Inline scope exists only for citation masking while the answer streams;
+    /// destination policy is a final-document decision, so the scan runs once.
+    func testInlineScopeDoesNotRepeatDestinationValidation() {
+        let answer = "See evil.example."
+        XCTAssertTrue(CitationValidator.validate(answer: answer, sourceCount: 0,
+                                                 scope: .inline).forbiddenLinks.isEmpty)
+        XCTAssertFalse(CitationValidator.validate(answer: answer, sourceCount: 0).forbiddenLinks.isEmpty)
+    }
+
+    /// Unmatched openers never become links, however many there are. A run of them
+    /// is also the worst case for the bracket walk: it must stay linear rather than
+    /// rescanning the tail from each `[`.
+    func testManyUnmatchedMarkdownOpenersRemainOrdinaryText() {
+        let answer = String(repeating: "[", count: 10_000) + " ordinary prose"
+        XCTAssertTrue(CitationValidator.validate(answer: answer, sourceCount: 0)
+            .forbiddenLinks.isEmpty)
     }
 
     func testLinkScanTerminatesOnLongPunctuationHeavyText() {
