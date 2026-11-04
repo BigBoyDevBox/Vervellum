@@ -110,6 +110,31 @@ final class SearchBackendTests: XCTestCase {
         XCTAssertEqual(projected as? [String: String], ["query": "required value"])
     }
 
+    /// The planner-side mirror of `testProjectionRejectsAnAdditionalRequiredArgument`:
+    /// a schema that requires a string this code does not recognise is rejected as a
+    /// target, so it must be rejected as a planner too. Before the guard it was
+    /// accepted, and the sole optional recognised key stood in for a query that may
+    /// well live in the required field — sent to every spare as though it were real.
+    /// `.incompatibleSchema`, not `.invalidArguments`: the schema, not one step's
+    /// values, is the problem, so the engine is retired for the rest of the turn.
+    func testProjectionRejectsAPlannerRequiringAnUnrecognisedString() {
+        let planner = Backend(
+            properties: ["q": Self.string, "filters": Self.string],
+            required: ["filters"])
+        let spare = Backend(
+            properties: ["query": Self.string], required: ["query"])
+
+        switch spare.projection(
+            from: ["q": "not the query", "filters": "the real query"],
+            plannedAgainst: planner) {
+        case .incompatibleSchema:
+            break
+        case .arguments, .invalidArguments:
+            XCTFail("a required unrecognised string must retire the planner for "
+                    + "projection, not donate its optional recognised key")
+        }
+    }
+
     func testOptionalPlannerQueryIsResolvedPerStep() throws {
         let planner = Backend(
             properties: ["q": Self.string, "query": Self.string], required: [])

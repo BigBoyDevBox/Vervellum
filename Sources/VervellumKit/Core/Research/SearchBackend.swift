@@ -138,6 +138,15 @@ extension SearchBackend {
         if let required = requiredRecognized.first {
             name = required
         } else {
+            // No required recognised query key. A required string we do not
+            // recognise is, in practice, the query under a provider-specific
+            // name; an optional recognised key must not stand in for it. This
+            // mirrors the target side's `required.isSubset(of: [targetName])`:
+            // both sides must reject the same schema, or a planner like
+            // `{q: optional, filters: required}` would be unwritable as a target
+            // yet silently donate its optional `q` as though it were the query.
+            guard schema.required.isDisjoint(with: schema.stringProperties)
+            else { return .incompatibleSchema }
             let present = recognized.filter { arguments[$0] != nil }
             guard present.count == 1, let only = present.first
             else { return .invalidArguments }

@@ -167,8 +167,12 @@ enum ResearchLevel: String, Codable, CaseIterable, Identifiable, Equatable {
                 + "\(evidence(ResearchContext.maxEvidenceCharacters)) evidence budget."
         case .deep:
             let engines = max(1, settings.searchProfiles.count)
+            // A lone engine is the selected one, and the plan is written against the
+            // selected engine's schema, so nothing about it can be incompatible: saying
+            // "when its schema is compatible" here would describe a case that cannot
+            // occur and undercut the estimate it accompanies.
             let fanOut = engines == 1
-                ? "your configured search engine when its schema is compatible"
+                ? "your configured search engine"
                 : "every compatible search engine (up to all \(engines) you configured)"
             return "Up to \(ResearchRunner.maxDeepRounds) rounds of "
                 + "\(ResearchRunner.maxSearches) searches, every one of them put to "

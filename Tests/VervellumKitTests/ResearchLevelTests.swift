@@ -194,8 +194,13 @@ final class ResearchLevelTests: XCTestCase {
         var one = ProviderSettings()
         one.searchProfiles = [SearchProfile.new(name: "A", endpoint: "https://a.example")]
         XCTAssertTrue(ResearchLevel.deep.cost(one)
-            .contains("your configured search engine when its schema is compatible"),
+            .contains("your configured search engine"),
                       ResearchLevel.deep.cost(one))
+        // A lone engine is the selected one, and the plan is written against the
+        // selected engine's schema, so the single-engine line must not hedge about
+        // compatibility — a qualifier that can only apply would read as a warning.
+        XCTAssertFalse(ResearchLevel.deep.cost(one).contains("compatible"),
+                       ResearchLevel.deep.cost(one))
 
         var two = one
         two.searchProfiles.append(SearchProfile.new(name: "B", endpoint: "https://b.example"))
@@ -207,6 +212,6 @@ final class ResearchLevelTests: XCTestCase {
         // against the selected engine, and a settings file with an empty list is a
         // machine that cannot research at all — a cost line is not where that is said.
         XCTAssertTrue(ResearchLevel.deep.cost(ProviderSettings())
-            .contains("your configured search engine when its schema is compatible"))
+            .contains("your configured search engine"))
     }
 }

@@ -1600,6 +1600,86 @@ final class ResearchRunnerTests: XCTestCase {
         XCTAssertFalse(log.messages.contains { $0.contains("Search 1 via MCP server failed") })
     }
 
+    /// The planner-side half of `testAProjectionIncompatibleSpareIsSkippedWithoutAnAttempt`.
+    /// A selected engine whose schema requires an unrecognised string (`filters`) beside
+    /// an optional recognised one (`q`) used to donate `q`'s value to every spare as
+    /// though it were the query, silently — the required field may hold the real query
+    /// under a provider-specific name. Both sides of projection must now reject the
+    /// same schemas, so the spare is retired rather than fed a guess.
+    func testAPlannerRequiringAnUnrecognisedStringRetiresItsSpares() async throws {
+        let transport = StubTransport { call in
+            if call.url.host == "mcp.test" {
+                return Self.mcpReply(call,
+                                     properties: ["q": ["type": "string"],
+                                                  "filters": ["type": "string"]],
+                                     required: ["filters"])
+            }
+            switch call.kind {
+            case .fetch:
+                return .html("<p>Source text.</p>")
+            case .json where call.url.path == "/search":
+                return .json(Self.searxng([(
+                    url: "https://searx.example/hit", title: "SearXNG hit")]))
+            case .json:
+                switch Self.stage(of: call) {
+                case .plan:
+                    return .completion(json: [
+                        "reading": "Compare two indexes.",
+                        "searches": [[
+                            "purpose": "find the measurement",
+                            "arguments": [
+                                "q": "stellar parallax",
+                                "filters": "science",
+                            ],
+                        ]],
+                    ])
+                case .deepPlan:
+                    return .completion(json: [
+                        "reading": "Nothing is missing.", "searches": [Any](),
+                    ])
+                case .assess:
+                    return .completion(json: Self.assessment)
+                default:
+                    return .unrouted
+                }
+            case .stream:
+                return .stream(["The selected engine found evidence [1]."])
+            }
+        }
+        var configured = settings(searchKind: .mcp, searchEndpoint: "https://mcp.test")
+        configured.searchProfiles.append(
+            SearchProfile(name: "SearXNG", kind: .searxng, endpoint: "https://search.test",
+                          keyAccount: "test.searx"))
+        let log = RecordingLog()
+        let runner = ResearchRunner(
+            environment: ResearchRunner.Environment(
+                settings: configured, modelKey: "model-key", searchKey: "mcp-key"),
+            trace: ResearchTrace(sink: log), transport: transport,
+            attachmentBytes: { _ in nil })
+
+        let turn = await runner.run(ResearchTurn(question: "How is parallax measured?"),
+                                     mode: .deep, history: [], onUpdate: { _ in })
+
+        XCTAssertEqual(turn.stage, .complete, turn.failure ?? "no failure recorded")
+        XCTAssertEqual(turn.searchesCompleted, 1)
+        XCTAssertEqual(turn.sources.map(\.url), ["https://mcp.example/hit"])
+        // The spare was never asked: no SearXNG call left the runner, and the trace
+        // says why in the words every schema-level skip uses.
+        XCTAssertFalse(transport.calls.contains { $0.url.path == "/search" })
+        XCTAssertTrue(log.messages.contains {
+            $0.contains("Search 1 skipped on SearXNG")
+                && $0.contains("not compatible with the plan")
+        }, "the skip must be attributed to the schema, not a per-step value")
+        // The selected engine received its own plan verbatim, filters included.
+        let calls = transport.calls.filter {
+            $0.body?["method"] as? String == "tools/call"
+        }
+        let params = try XCTUnwrap(calls.first?.body?["params"] as? [String: Any])
+        let arguments = try XCTUnwrap(params["arguments"] as? [String: Any])
+        XCTAssertEqual(arguments as? [String: String],
+                       ["q": "stellar parallax", "filters": "science"])
+    }
+
     /// The failure mode the fan-out introduces: one engine failing one query must
     /// not sink the round, renumber the surviving evidence, or stop the other
     /// queries from reaching the failing engine's sibling. This is the regression
