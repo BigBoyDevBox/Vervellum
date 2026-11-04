@@ -31,6 +31,21 @@ final class HotkeyBindingTests: XCTestCase {
                                      keyLabel: "D", enabled: false).isValid)
     }
 
+    func testShiftAloneIsNotARegisterableGlobalShortcut() {
+        let shifted = HotkeyBinding(keyCode: 0, modifiers: UInt32(shiftKey),
+                                    keyLabel: "A", enabled: true)
+
+        XCTAssertFalse(shifted.hasCommandModifier)
+        XCTAssertFalse(shifted.isValid)
+
+        for modifier in [cmdKey, controlKey, optionKey] {
+            let binding = HotkeyBinding(keyCode: 0, modifiers: UInt32(modifier),
+                                        keyLabel: "A", enabled: true)
+            XCTAssertTrue(binding.hasCommandModifier)
+            XCTAssertTrue(binding.isValid)
+        }
+    }
+
     func testJSONRoundTrip() {
         let original = HotkeyBinding(keyCode: 49, modifiers: UInt32(cmdKey | optionKey),
                                      keyLabel: "Space", enabled: true)

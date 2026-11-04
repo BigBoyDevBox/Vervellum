@@ -14,9 +14,17 @@ struct HotkeyBinding: Codable, Equatable {
     var keyLabel: String
     var enabled: Bool
 
-    /// Registerable only when enabled and carrying at least one modifier — a bare
-    /// key would steal that key system-wide.
-    var isValid: Bool { enabled && modifiers != 0 }
+    /// At least one modifier that changes the gesture rather than merely changing the
+    /// character it types. Shift-A is still ordinary text and must never be captured
+    /// system-wide; Command, Control and Option identify an intentional shortcut.
+    var hasCommandModifier: Bool {
+        let commandMask = UInt32(cmdKey | controlKey | optionKey)
+        return modifiers & commandMask != 0
+    }
+
+    /// Registerable only when enabled and carrying a command modifier — a bare or
+    /// Shift-only key would steal ordinary typing system-wide.
+    var isValid: Bool { enabled && hasCommandModifier }
 
     /// The modifier glyphs in canonical macOS order (⌃⌥⇧⌘).
     var modifierSymbols: String {
