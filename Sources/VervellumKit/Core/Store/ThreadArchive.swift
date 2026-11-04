@@ -308,8 +308,12 @@ final class ThreadArchive {
             encoder.dateEncodingStrategy = .iso8601
             let data = try encoder.encode(snapshot)
 
-            try fileManager.createDirectory(at: fileURL.deletingLastPathComponent(),
-                                            withIntermediateDirectories: true)
+            // Fence off Foundation's atomic temporary files before any bytes are written.
+            let directory = fileURL.deletingLastPathComponent()
+            let privateDirectory: [FileAttributeKey: Any] = [.posixPermissions: 0o700]
+            try fileManager.createDirectory(at: directory, withIntermediateDirectories: true,
+                                            attributes: privateDirectory)
+            try fileManager.setAttributes(privateDirectory, ofItemAtPath: directory.path)
             // Skip a write that would change nothing. `flush()` is called on every
             // dismissal and at termination, and without this each one rotates the
             // previous file into `.bak` — after two flushes the backup is a byte-perfect
