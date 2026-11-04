@@ -113,8 +113,9 @@ runs the searches and answers based on current sources.
   signed in with. Model replies must
   finish with `finish_reason: stop`; malformed or unfinished replies remain
   incomplete. On macOS, keys live in one login-Keychain item as an account-to-key
-  dictionary; legacy per-account items are maintained only so older builds can still
-  read keys after a downgrade.
+  dictionary. Writes also update legacy per-account items on a best-effort basis so an
+  older build can still read keys after a downgrade; deletion will not remove the blob
+  unless its matching legacy item was removed first.
 - **As many models as you want, chosen per question.** Configure several providers —
   a local server, a fast hosted model, a careful one — each with its own endpoint and
   its own key. Pick the one that answers next from the panel or with `/model`; every
@@ -313,9 +314,9 @@ without it.
 There is no account system, telemetry or analytics. A question and its thread go to
 the selected model provider; if model fallback is enabled and that provider fails,
 the same request can go to the next configured model providers. **No search** makes
-no search or page requests. **One pass** uses the selected search provider, while
+no search or page requests, including for links pasted into the question. **One pass** uses the selected search provider, while
 **Deep rounds** sends each planned query to every configured search engine. Direct
-page reading also contacts up to three page hosts for One pass, or eight shared
+page reading also contacts up to three pages for One pass, or eight shared
 between pasted links and search results for Deep rounds and Agent loop; reader-service
 mode sends those URLs to the configured reader instead. Threads and preferences stay
 on your machine. API keys live in the Keychain on macOS. Linux reads explicit
