@@ -106,42 +106,48 @@ private struct HistoryRow: View {
     @State private var isHovering = false
 
     var body: some View {
-        Button(action: onOpen) {
-            HStack(alignment: .top, spacing: PanelTheme.Space.small) {
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(thread.title)
-                        .font(PanelTheme.Font.at(12, textScale, weight: .medium))
-                        .foregroundStyle(PanelTheme.Palette.primaryText)
-                        .lineLimit(1)
-                    Text(subtitle)
-                        .font(PanelTheme.Font.at(10.5, textScale))
-                        .foregroundStyle(PanelTheme.Palette.tertiaryText)
-                }
-                Spacer(minLength: 0)
-                if isRunning {
-                    // The row is live: this thread's session is still answering.
-                    // Always visible rather than hover-gated like the delete button —
-                    // it is the *reason* the row's contents may change underfoot.
-                    ProgressView()
-                        .controlSize(.small)
-                        .accessibilityLabel("Still researching")
-                }
-                if isHovering {
-                    Button(action: onDelete) {
-                        Image(systemName: "trash")
-                            .font(PanelTheme.Font.at(10, textScale))
+        HStack(alignment: .top, spacing: PanelTheme.Space.small) {
+            Button(action: onOpen) {
+                HStack(alignment: .top, spacing: PanelTheme.Space.small) {
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(thread.title)
+                            .font(PanelTheme.Font.at(12, textScale, weight: .medium))
+                            .foregroundStyle(PanelTheme.Palette.primaryText)
+                            .lineLimit(1)
+                        Text(subtitle)
+                            .font(PanelTheme.Font.at(10.5, textScale))
                             .foregroundStyle(PanelTheme.Palette.tertiaryText)
                     }
-                    .buttonStyle(.plain)
-                    .help("Delete this thread")
+                    Spacer(minLength: 0)
+                    if isRunning {
+                        // This session is still answering, so its row can change underfoot.
+                        ProgressView()
+                            .controlSize(.small)
+                            .accessibilityLabel("Still researching")
+                    }
                 }
+                .contentShape(Rectangle())
             }
-            .padding(.horizontal, PanelTheme.Space.medium)
-            .padding(.vertical, PanelTheme.Space.small)
-            .background(isHovering ? PanelTheme.Palette.chipFill : .clear)
-            .contentShape(Rectangle())
+            .buttonStyle(.plain)
+
+            // Always a sibling: hover must not gate keyboard or VoiceOver actions.
+            Button(action: onDelete) {
+                // Hover keeps its affordance through the tint rather than through
+                // visibility.
+                Image(systemName: "trash")
+                    .font(PanelTheme.Font.at(10, textScale))
+                    .foregroundStyle(isHovering
+                                     ? PanelTheme.Palette.primaryText
+                                     : PanelTheme.Palette.tertiaryText)
+                    .padding(PanelTheme.Space.small)
+            }
+            .buttonStyle(.plain)
+            .help("Delete this thread")
+            .accessibilityLabel("Delete thread: \(thread.title)")
         }
-        .buttonStyle(.plain)
+        .padding(.horizontal, PanelTheme.Space.medium)
+        .padding(.vertical, PanelTheme.Space.small)
+        .background(isHovering ? PanelTheme.Palette.chipFill : .clear)
         .onHover { isHovering = $0 }
     }
 
