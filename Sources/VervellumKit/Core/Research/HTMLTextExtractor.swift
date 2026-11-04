@@ -69,6 +69,9 @@ enum HTMLTextExtractor {
         working = breakingBlocks(in: working)
         working = stripTags(working)
         working = decodingEntities(working)
+        // Page text is shown as well as sent: the bidi overrides and stray controls a
+        // hostile page can carry are dropped before either audience sees them.
+        working = HostileText.stripped(working)
         let normalized = normalize(working, limit: limit)
         return normalized.count < minimum ? "" : normalized
     }

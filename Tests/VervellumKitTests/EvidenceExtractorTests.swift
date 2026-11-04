@@ -118,6 +118,31 @@ final class EvidenceExtractorTests: XCTestCase {
         XCTAssertEqual(EvidenceExtractor.sources(from: [payload]).first?.domain, "example.com")
     }
 
+    /// A hostile or broken result can carry a bidi override in its title (so the row
+    /// displays something other than what was read) or a NUL (which truncates a GTK
+    /// C string mid-title). Neither survives the harvest.
+    func testBidiAndNULCharactersAreDroppedFromTitlesAndSnippets() {
+        let payload: [String: Any] = ["results": [
+            ["title": "Trust\u{202E}me", "url": "https://a.example/1", "snippet": "S\u{0}afe"],
+        ]]
+        let source = EvidenceExtractor.sources(from: [payload]).first
+        XCTAssertEqual(source?.title, "Trustme")
+        XCTAssertEqual(source?.snippet, "Safe")
+    }
+
+    /// The URL is display text as well as a fetch target: an override in the path
+    /// spoofs the domain the panel shows, and a NUL truncates a GTK label. Both
+    /// survive `URLComponents` — and so `normalized` — so they must be stripped at
+    /// the same place the title and snippet are.
+    func testBidiAndNULCharactersAreDroppedFromURLs() {
+        let payload: [String: Any] = ["results": [
+            ["title": "T", "url": "https://a.example/pa\u{202E}ge\u{0}"],
+        ]]
+        let source = EvidenceExtractor.sources(from: [payload]).first
+        XCTAssertEqual(source?.url, "https://a.example/page")
+        XCTAssertEqual(source?.domain, "a.example")
+    }
+
     func testFallsBackToAReadableTitleWhenNoneIsGiven() {
         let payload: [String: Any] = ["results": [["url": "https://example.com/some-long-slug"]]]
         let title = EvidenceExtractor.sources(from: [payload]).first?.title ?? ""
