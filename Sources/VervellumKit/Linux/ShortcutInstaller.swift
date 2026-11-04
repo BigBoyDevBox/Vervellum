@@ -51,7 +51,12 @@ enum ShortcutInstaller {
             report("gsettings was not found — bind the shortcut yourself, to: \(command)")
             return false
         }
-        guard let schemas = run(["list-schemas"]), schemas.contains(listSchema) else {
+        return install(accelerator: accelerator, execute: run)
+    }
+
+    static func install(accelerator: String = defaultAccelerator,
+                        execute: ([String]) -> String?) -> Bool {
+        guard let schemas = execute(["list-schemas"]), schemas.contains(listSchema) else {
             report("this is not a GNOME session — bind the shortcut yourself, to: \(command)")
             return false
         }
@@ -59,15 +64,21 @@ enum ShortcutInstaller {
         // A *failed* read must abort, never fall back to an empty list. Treating a
         // failure as "there are no bindings" and then writing would erase every custom
         // keybinding the user has, in every other application.
-        guard let list = run(["get", listSchema, "custom-keybindings"]) else {
+        guard let list = execute(["get", listSchema, "custom-keybindings"]) else {
             report("could not read the existing shortcuts — nothing was changed")
             return false
         }
-        let slot = existingSlot(in: list) ?? claimSlot(in: list)
-
-        _ = run(["set", "\(itemSchema):\(slot)", "name", bindingName])
-        _ = run(["set", "\(itemSchema):\(slot)", "command", command])
-        _ = run(["set", "\(itemSchema):\(slot)", "binding", accelerator])
+        let existing = existingSlot(in: list, execute: execute)
+        let slot = existing ?? unusedSlot(in: list)
+        // Publish a new slot only after its command and binding are usable.
+        guard execute(["set", "\(itemSchema):\(slot)", "name", bindingName]) != nil,
+              execute(["set", "\(itemSchema):\(slot)", "command", command]) != nil,
+              execute(["set", "\(itemSchema):\(slot)", "binding", accelerator]) != nil,
+              existing != nil || execute(["set", listSchema, "custom-keybindings",
+                                         encode(paths(in: list) + [slot])]) != nil else {
+            report("could not save the shortcut; run --install-shortcut to retry")
+            return false
+        }
         report("bound \(accelerator) to Vervellum")
         return true
     }
@@ -80,14 +91,14 @@ enum ShortcutInstaller {
     ///
     /// Matching on the name is what makes re-running this a no-op instead of leaking a
     /// fresh `customN` entry on every launch.
-    private static func existingSlot(in list: String) -> String? {
+    private static func existingSlot(in list: String, execute: ([String]) -> String?) -> String? {
         paths(in: list).first { path in
-            run(["get", "\(itemSchema):\(path)", "name"]) == "'\(bindingName)'"
+            execute(["get", "\(itemSchema):\(path)", "name"]) == "'\(bindingName)'"
         }
     }
 
-    /// The lowest unused slot, appended to the list.
-    private static func claimSlot(in list: String) -> String {
+    /// The lowest unused slot; publication follows successful item writes.
+    private static func unusedSlot(in list: String) -> String {
         let existing = Set(paths(in: list))
         var index = 0
         var path = "\(basePath)/custom0/"
@@ -95,7 +106,6 @@ enum ShortcutInstaller {
             index += 1
             path = "\(basePath)/custom\(index)/"
         }
-        _ = run(["set", listSchema, "custom-keybindings", encode(paths(in: list) + [path])])
         return path
     }
 
@@ -129,22 +139,8 @@ enum ShortcutInstaller {
     }()
 
     private static func run(_ arguments: [String]) -> String? {
-        guard let gsettingsPath else { return nil }
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: gsettingsPath)
-        process.arguments = arguments
-        let output = Pipe()
-        process.standardOutput = output
-        // The null device, not a Pipe that nobody reads: an undrained pipe fills at
-        // 64 KB and the child then blocks on it forever, which would hang
-        // `waitUntilExit`. gsettings is terse, but the cost of being wrong is a hang on
-        // every launch.
-        process.standardError = FileHandle.nullDevice
-        do { try process.run() } catch { return nil }
-        let data = output.fileHandleForReading.readDataToEndOfFile()
-        process.waitUntilExit()
-        guard process.terminationStatus == 0 else { return nil }
-        return String(decoding: data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+        LinuxDesktopCommand.run(gsettingsPath, arguments)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private static func report(_ message: String) {

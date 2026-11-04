@@ -87,6 +87,9 @@ struct ComposerView: NSViewRepresentable {
         textView.delegate = context.coordinator
         textView.coordinator = context.coordinator
         textView.isRichText = false
+        // The drawn placeholder is not part of the native accessibility tree.
+        textView.setAccessibilityLabel("Question")
+        textView.setAccessibilityHelp(placeholder)
         textView.allowsUndo = true
         textView.font = .systemFont(ofSize: Self.baseFontSize * Self.sane(scale))
         textView.textContainerInset = NSSize(width: 4, height: 6)
@@ -127,6 +130,9 @@ struct ComposerView: NSViewRepresentable {
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
         context.coordinator.parent = self
         guard let textView = scrollView.documentView as? NSTextView else { return }
+        if textView.accessibilityHelp() != placeholder {
+            textView.setAccessibilityHelp(placeholder)
+        }
         // Only write back when the model genuinely diverged: assigning `string`
         // resets the insertion point, so doing it on every keystroke would make the
         // caret jump to the end mid-word.

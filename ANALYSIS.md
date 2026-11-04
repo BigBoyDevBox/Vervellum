@@ -1,11 +1,11 @@
 # Vervellum research backlog
 
-Consolidated 2026-11-04 against `origin/main` at `ef92cbf`. Completed requirements
+Consolidated 2026-11-04 against `origin/main` at `1924f01`. Completed requirements
 and implemented slices in open PRs are omitted. Earlier context remains in
 [PR-REVIEW.md](PR-REVIEW.md), [fable.md](fable.md) and the
 [historical analysis](https://github.com/L-K-M/Vervellum/blob/0311b35/ANALYSIS.md).
 
-Relevant open PRs through #184 were checked for overlap; only their implemented
+Relevant open PRs through #191 were checked for overlap; only their implemented
 slices are omitted. They are not merged. Restore a requirement from its PR if it
 closes unmerged. Sol3 feature PRs were verified on their individual heads rather
 than as a combined stack; parallel PRs not cited here were not reviewed. #138's
@@ -1587,17 +1587,6 @@ Where: Sources/VervellumKit/Core/Platform/AppIdentity.swift:23–29; packaging/b
 
 Earlier effort: S.
 
-### A79 · Bound stored attachment rereads
-
-Bugs — nice-to-have
-
-`AttachmentStore.load` trusts persisted metadata and reads a stored file wholly into
-memory. A file replaced or corrupted outside Vervellum can therefore cause a large
-allocation when a turn is retried or reopened.
-
-Suggested fix: inspect the file immediately before reading and use a byte-capped read
-that rejects data beyond the attachment limit.
-
 ### A80 · Validate persisted attachment sizes
 
 Bugs — nice-to-have
@@ -1608,6 +1597,48 @@ recoverable.
 
 Suggested fix: clamp legacy negative values to zero or discard only the invalid
 attachment while preserving the containing turn, with tolerant-decoding tests.
+
+### A81 · Decode declared legacy page encodings accurately
+
+Bugs — nice-to-have
+
+At `Sources/VervellumKit/Core/Research/PageReader.swift:450–470`, `DirectPageReader`
+tries UTF-8 before the declared charset, maps Windows-1252 to ISO-8859-1, and maps
+explicit UTF-16LE/UTF-16BE declarations to the BOM-sensitive native UTF-16 decoder.
+Older pages can therefore arrive with garbled punctuation and euro characters, while
+BOM-less UTF-16 containing ASCII can be accepted as NUL-filled UTF-8 and yield no useful
+page text. This weakens the evidence available to every research mode that reads them.
+
+Suggested fix: honor recognized declared charsets before the generic UTF-8 fallback;
+use `.windowsCP1252`, `.utf16LittleEndian`, and `.utf16BigEndian`, with byte fixtures
+that distinguish each encoding. Rough effort: about one hour.
+
+### A82 · Measure the assessment stage rather than the whole turn
+
+General issues — nice-to-have
+
+At `Sources/VervellumKit/Core/Research/ResearchRunner.swift:1788–1800`, the assessment
+trace records elapsed time from the beginning of the research turn, so its duration
+includes planning, search, page reading, and answer generation. Maintainers diagnosing
+a slow assessment provider are shown a plausible but incorrect stage time; end users
+are unaffected.
+
+Suggested fix: capture a monotonic stage start immediately before assessment, as the
+revision path already does, and report only the assessment interval. Rough effort:
+under one hour.
+
+### A83 · Evict idle research sessions
+
+Performance problems, stuttering, and jank — nice-to-have
+
+At `Vervellum/Research/ResearchEngine.swift:50–54,108–126,181–201`, `ResearchEngine`
+retains a full `ResearchSession` for every thread opened during the process lifetime.
+Repeated `/new` commands alone create an unbounded map of blank idle sessions, while
+long-running menu-bar users accumulate duplicate in-memory thread state.
+
+Suggested fix: evict inactive sessions after they become idle, have no returned queued
+questions, and their latest thread snapshot is durable; always retain running, queued,
+and currently active sessions. Rough effort: about half a day.
 
 ### S07 · Match key hints to the submit preference
 

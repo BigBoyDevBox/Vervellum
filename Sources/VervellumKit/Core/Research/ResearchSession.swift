@@ -210,14 +210,11 @@ final class ResearchSession {
         // is the only condition under which `start` writes at all. With history off it
         // is also the condition under which they were never stored, so a retry there
         // finds nothing and takes the branch below rather than a different one.
-        // An attachment whose bytes have gone since is dropped:
-        // a retry that silently answered without the picture, while still listing it,
-        // would be the one outcome nobody could explain.
-        let attachments = turn.attachments.compactMap { attachment in
-            attachmentStore.data(for: attachment).map {
-                PendingAttachment(attachment: attachment, data: $0)
-            }
-        }
+        // An attachment whose bytes have gone or no longer match their record is
+        // dropped: a retry that silently answered without the picture, or announced a
+        // PNG while sending different bytes under that claim, would be the one outcome
+        // nobody could explain.
+        let attachments = turn.attachments.compactMap(restoredAttachment)
         // Said out loud rather than logged. The turn is the record — the notice is
         // persisted with it, shown in the panel and carried into the transcript — and a
         // line in the system log would reach everyone except the person looking at an
@@ -229,6 +226,21 @@ final class ResearchSession {
         // turn the user was looking at some time later, out of order.
         start(question.trimmingCharacters(in: .whitespacesAndNewlines), mode: mode,
               attachments: attachments, lostAttachments: lost)
+    }
+
+    /// Restores stored bytes only after running them through the same type and size
+    /// policy as fresh intake. The rebuilt attachment gets a new id, so its identity is
+    /// deliberately not compared or retained; the stored record owns identity and the
+    /// rebuilt value proves only kind, media type and normalized size. The rebuilt bytes
+    /// are retained because text intake may normalize/truncate them.
+    private func restoredAttachment(_ attachment: Attachment) -> PendingAttachment? {
+        guard let stored = attachmentStore.data(for: attachment),
+              case .success(let rebuilt) = Attachment.make(from: stored, name: attachment.name),
+              rebuilt.0.kind == attachment.kind,
+              rebuilt.0.mediaType == attachment.mediaType,
+              rebuilt.0.byteCount == attachment.byteCount
+        else { return nil }
+        return PendingAttachment(attachment: attachment, data: rebuilt.1)
     }
 
     /// Appends a turn for an already-trimmed question and starts researching it.

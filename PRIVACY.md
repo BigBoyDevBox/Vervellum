@@ -27,9 +27,13 @@ Vervellum makes network requests in exactly five cases, each with a fixed purpos
   you cancel is never re-sent.
 - **Search queries.** Model-written queries derived from your question and context go
   to the search provider selected when you asked — an MCP server, a SearXNG instance
-  queried directly, or the `kagi` command-line tool on this machine — and to no other
-  configured provider. They are shown to you in the panel's process trail before the
-  answer arrives. With **Kagi CLI** selected the query reaches Kagi through that tool,
+  queried directly, or the `kagi` command-line tool on this machine. At the **Deep
+  rounds** level every planned search is then put to *every* search provider you have
+  configured, selected first: two indexes that disagree are most of what the wider net
+  is for, and the level picker says so before you choose it. The other levels use the
+  selected provider alone. Queries are shown to you in the panel's process trail before
+  the answer arrives. A query to **Kagi CLI** — the selected provider, or a configured one
+  a Deep rounds search fans out to — reaches Kagi through that tool,
   under the credential you gave it with `kagi auth` rather than one held here, so the
   search is attributed to your Kagi account exactly as a search you typed there would
   be. Vervellum runs the program, and normally never sees the credential — unless you
@@ -145,8 +149,21 @@ removable in Settings ▸ Keyboard ▸ Custom Shortcuts.
 Removing Vervellum and its application data removes the stored threads and preferences —
 `~/.config/vervellum` and `~/.local/share/vervellum` on Linux. API keys are removed by
 clearing them in Settings ▸ Providers on macOS, by deleting the "Vervellum" items from
-Keychain Access, or on Linux with
-`secret-tool clear service ch.lkmc.Vervellum account model-api-key`.
+Keychain Access, or on Linux by unlocking the login keyring and running:
+
+```sh
+secret-tool clear service ch.lkmc.Vervellum
+```
+
+Every keyring item Vervellum writes has that same `service` attribute; only its
+`account` differs. The service-wide selector therefore removes the legacy model,
+search and reader items as well as the per-provider accounts added by newer versions.
+Deleting `~/.config/vervellum` also removes the mode-0600 fallback key file,
+`~/.config/vervellum/secrets.json`, when no keyring was available (under a custom XDG
+configuration directory, the path is `$XDG_CONFIG_HOME/vervellum/secrets.json`).
+Environment variables are not stored in either place: remove
+`VERVELLUM_MODEL_KEY`, `VERVELLUM_SEARCH_KEY` and `VERVELLUM_READER_KEY` from the shell
+profile or launcher that sets them.
 
 Questions can be asked through the project's GitHub repository; please report security
 vulnerabilities privately, as described in [SECURITY.md](SECURITY.md).

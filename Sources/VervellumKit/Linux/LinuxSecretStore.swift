@@ -180,39 +180,7 @@ final class LinuxSecretStore: SecretStore {
     /// Runs a command, returning its standard output, or nil if it could not run or
     /// exited non-zero.
     private static func run(_ path: String?, _ arguments: [String], input: String? = nil) -> String? {
-        guard let path else { return nil }
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: path)
-        process.arguments = arguments
-
-        let output = Pipe()
-        process.standardOutput = output
-        // The null device, not a Pipe. An undrained pipe fills at 64 KB and the child
-        // blocks writing to it forever, which would hang `waitUntilExit` — and this
-        // output is never shown or logged anyway, because a provider's own error text
-        // must not escape.
-        process.standardError = FileHandle.nullDevice
-        let stdin = Pipe()
-        if input != nil { process.standardInput = stdin }
-
-        do {
-            try process.run()
-        } catch {
-            return nil
-        }
-        if let input {
-            // The throwing form: a child that exited before reading makes the write fail
-            // with EPIPE, and `FileHandle.write(_:)` raises an Objective-C exception for
-            // that, which Swift cannot catch — it terminates the process.
-            try? stdin.fileHandleForWriting.write(contentsOf: Data(input.utf8))
-            try? stdin.fileHandleForWriting.close()
-        }
-        // Read before waiting: the reverse order deadlocks if the child writes more than
-        // the pipe buffer holds.
-        let data = output.fileHandleForReading.readDataToEndOfFile()
-        process.waitUntilExit()
-        guard process.terminationStatus == 0 else { return nil }
-        return String(decoding: data, as: UTF8.self)
+        LinuxDesktopCommand.run(path, arguments, input: input)
     }
 }
 

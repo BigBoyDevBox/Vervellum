@@ -38,6 +38,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let summonHotkey = CarbonHotkey(identifier: 1)
     private let selectionHotkey = CarbonHotkey(identifier: 2)
     private var statusItem: NSStatusItem?
+    /// The menu's Stop item. Kept because `autoenablesItems` is off and the item is
+    /// enabled by hand when the run state changes.
+    private var stopMenuItem: NSMenuItem?
     private var runningObserver: AnyCancellable?
     private var previewObserver: NSObjectProtocol?
 
@@ -226,13 +229,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let summon = preferences.summonHotkey
         summonHotkey.unregister()
         if summon.isValid {
-            summonHotkey.register(keyCode: summon.keyCode, modifiers: summon.modifiers)
+            // The result is the reader's only signal that the shortcut they were
+            // promised actually fires; `CarbonHotkey` logs a status code and nothing
+            // else surfaces it.
+            preferences.summonHotkeyRegistration =
+                summonHotkey.register(keyCode: summon.keyCode, modifiers: summon.modifiers)
+                    ? .registered : .failed
+        } else {
+            preferences.summonHotkeyRegistration = .notAttempted
         }
 
         let selection = preferences.researchSelectionHotkey
         selectionHotkey.unregister()
         if selection.isValid {
-            selectionHotkey.register(keyCode: selection.keyCode, modifiers: selection.modifiers)
+            preferences.researchSelectionHotkeyRegistration =
+                selectionHotkey.register(keyCode: selection.keyCode,
+                                        modifiers: selection.modifiers)
+                    ? .registered : .failed
+        } else {
+            preferences.researchSelectionHotkeyRegistration = .notAttempted
         }
     }
 
@@ -381,11 +396,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     systemSymbolName: symbol,
                     accessibilityDescription: isRunning ? "Vervellum — researching" : "Vervellum")
                 self.statusItem?.button?.image?.isTemplate = true
+                self.stopMenuItem?.isEnabled = isRunning
             }
     }
 
     private func makeMenu() -> NSMenu {
         let menu = NSMenu()
+        // Managed by hand, so the Stop item can reflect the run state without every
+        // other item having to answer a validation message. All of them are always
+        // available anyway.
+        menu.autoenablesItems = false
         for (title, selector, key) in [
             ("Ask Vervellum…", #selector(summon), ""),
             ("Research the Selection", #selector(summonSelection), ""),
@@ -394,6 +414,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             item.target = self
             menu.addItem(item)
         }
+        // The emergency brake for runs the panel cannot reach: `/new` and opening
+        // another thread detach a session, and it keeps working — and keeps spending
+        // searches — until its thread is reopened. Stop means this conversation; this
+        // means all of them.
+        let stop = NSMenuItem(title: "Stop All Research", action: #selector(stopAllResearch),
+                              keyEquivalent: "")
+        stop.target = self
+        stop.isEnabled = engine.isBusy
+        menu.addItem(stop)
+        stopMenuItem = stop
         menu.addItem(.separator())
         for (title, selector, key) in [
             ("Vervellum Settings…", #selector(openSettingsMenuItem), ","),
@@ -415,6 +445,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func summon() { panelController?.show() }
     @objc private func summonSelection() { summonWithSelection() }
     @objc private func openSettingsMenuItem() { openSettings() }
+    @objc private func stopAllResearch() { engine.cancelAll() }
 
     /// Settings takes the panel's place.
     ///

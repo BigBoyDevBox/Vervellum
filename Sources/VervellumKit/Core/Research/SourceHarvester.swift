@@ -73,12 +73,17 @@ enum SourceHarvester {
     }
 
     /// Bare `http(s)://…` runs inside free text.
+    ///
+    /// The regular expression stops before `)` so prose punctuation is not swallowed.
+    /// A closer immediately after this particular match is restored only when the URL
+    /// itself opened a parenthesis, preserving paths such as Wikipedia disambiguators.
     static func bareURLs(in text: String) -> [String] {
         guard let regex = urlRegex else { return [] }
         let range = NSRange(text.startIndex..<text.endIndex, in: text)
         return regex.matches(in: text, range: range).compactMap { match in
             guard let swiftRange = Range(match.range, in: text) else { return nil }
-            return normalized(String(text[swiftRange]))
+            guard let url = normalized(String(text[swiftRange])) else { return nil }
+            return reclosingParentheses(url, after: swiftRange.upperBound, in: text)
         }
     }
 
@@ -100,8 +105,7 @@ enum SourceHarvester {
     /// ending in a dot. That is the opposite of what a search hit's `url` field wants,
     /// and it is why `normalized` takes the choice as a parameter.
     ///
-    /// A closing parenthesis that belongs to the address is put back; see
-    /// `reclosingParentheses`.
+    /// A closing parenthesis that belongs to the address is put back by `bareURLs`.
     static func links(inQuestion question: String, limit: Int) -> [String] {
         guard limit > 0 else { return [] }
         return Array(distinctLinks(inQuestion: question).prefix(limit))
@@ -123,8 +127,7 @@ enum SourceHarvester {
     private static func distinctLinks(inQuestion question: String) -> [String] {
         var seen: Set<String> = []
         var ordered: [String] = []
-        for match in bareURLs(in: question) {
-            let url = reclosingParentheses(match, in: question)
+        for url in bareURLs(in: question) {
             guard seen.insert(canonicalKey(for: url)).inserted else { continue }
             ordered.append(url)
         }
@@ -141,17 +144,24 @@ enum SourceHarvester {
     /// meant. Without this, the most-pasted URL shape after a news link is cut to
     /// `/wiki/Mercury_(planet` and fetched as a page that cannot exist.
     ///
-    /// Repaired against the question rather than by counting alone: a closer is added
-    /// only where the text really does carry one straight after the match. So a URL that
-    /// genuinely ends mid-parenthesis is left as it is rather than having an ending
-    /// invented for it, and "(see https://example.com/a)" is untouched because its match
-    /// opened nothing. Nested parentheses close one at a time, and the loop is bounded by
-    /// the question's own length.
-    static func reclosingParentheses(_ url: String, in question: String) -> String {
+    /// Repaired against this occurrence rather than with `text.contains`: a second copy
+    /// of the same URL elsewhere must not lend its closing parenthesis to an unclosed
+    /// first copy. Nested parentheses close one at a time, bounded by the text itself.
+    private static func reclosingParentheses(
+        _ url: String,
+        after matchEnd: String.Index,
+        in text: String
+    ) -> String {
         var candidate = url
-        while candidate.filter({ $0 == "(" }).count > candidate.filter({ $0 == ")" }).count,
-              question.contains(candidate + ")") {
+        var cursor = matchEnd
+        var unclosedParentheses = candidate.filter { $0 == "(" }.count
+            - candidate.filter { $0 == ")" }.count
+        while unclosedParentheses > 0,
+              cursor < text.endIndex,
+              text[cursor] == ")" {
             candidate += ")"
+            unclosedParentheses -= 1
+            cursor = text.index(after: cursor)
         }
         return candidate
     }

@@ -32,6 +32,12 @@ enum SecretRedactor {
             // A PEM block: unambiguous, and the highest-severity thing that can appear
             // in a selection. Matched first so its base64 body is never re-matched.
             ("pem", #"-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----"#),
+            // Capture is length-capped before it reaches this safety net. A key whose
+            // closing delimiter fell beyond that cap is still a key, and conservatively
+            // consuming the remainder is preferable to showing its body in the composer.
+            // Complete blocks have already been replaced by the preceding expression, so
+            // this catches only a BEGIN delimiter left unmatched in the remaining text.
+            ("truncatedPem", #"-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*\z"#),
             // Authorization headers, copied wholesale out of curl commands and logs.
             // Alphabetic tokens are legal too; prefer a false positive to a leaked key.
             ("bearer", #"(?i)\b(?:bearer|basic|token)\s+[A-Za-z0-9._~+/=-]{16,}"#),

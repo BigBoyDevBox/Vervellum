@@ -167,6 +167,46 @@ final class AttachmentFlowTests: XCTestCase {
         XCTAssertNotNil(seam, "the engine took a bytes seam when it was built")
     }
 
+    func testADetachedFailureReturnsTheQueuedAttachmentToItsOwnThread() throws {
+        let started = expectation(description: "First run started")
+        let failed = expectation(description: "Detached failure applied")
+        let returned = expectation(description: "Queued attachment returned")
+        let runner = CapturingRunner(onStart: started.fulfill)
+        defer { runner.finish() }
+        let (engine, _) = makeEngine(runner: runner, bytes: { _ in })
+        let pending = try pendingImage("detached.png")
+        var handedBack: [ResearchEngine.QueuedQuestion] = []
+        let failureLock = NSLock()
+        var sawFailure = false
+
+        engine.ask("Running")
+        wait(for: [started], timeout: 3)
+        XCTAssertEqual(engine.ask("Waiting", attachments: [pending]), .queued)
+        let original = engine.thread
+        engine.startNewThread()
+        engine.onThreadChanged = { thread in
+            failureLock.lock()
+            let firstFailure = thread.id == original.id
+                && thread.turns.last?.stage == .failed && !sawFailure
+            if firstFailure { sawFailure = true }
+            failureLock.unlock()
+            if firstFailure { failed.fulfill() }
+        }
+        engine.onQueueReturned = { questions in
+            handedBack = questions
+            returned.fulfill()
+        }
+
+        runner.finish(stage: .failed)
+        wait(for: [failed], timeout: 3)
+        XCTAssertTrue(handedBack.isEmpty, "the new thread's composer stays untouched")
+
+        engine.replaceThread(with: original)
+        wait(for: [returned], timeout: 3)
+        XCTAssertEqual(handedBack.map(\.question), ["Waiting"])
+        XCTAssertEqual(handedBack.flatMap(\.attachments), [pending])
+    }
+
     /// And when the queue is *not* stopped, the waiting question is asked with its
     /// attachment when its turn comes.
     ///
