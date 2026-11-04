@@ -197,6 +197,8 @@ final class LinuxPanel {
                 guard let self else { return }
                 self.environment.preferences.researchLevel = level
                 self.markSelectedLevel()
+                // Readiness depends on the level, so the cached empty state is stale.
+                self.cachedEmptyState = nil
                 if self.active.thread.turns.isEmpty { self.render() }
             }
             GTK.addStyle(button, "level")
