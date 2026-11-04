@@ -448,6 +448,10 @@ enum GTK {
         return button
     }
 
+    static func setAccessibleLabel(_ label: String, on widget: Widget) {
+        vv_accessible_set_label(widget, label)
+    }
+
     /// Attaches a key controller in the default bubble phase.
     static func observeKeys(_ widget: Widget, _ handler: @escaping (UInt32, UInt32) -> Bool) {
         let controller = gtk_event_controller_key_new()!

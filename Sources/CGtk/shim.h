@@ -95,6 +95,12 @@ static inline void vv_set_margins(GtkWidget *w, int all) {
     gtk_widget_set_margin_end(w, all);
 }
 
+/* gtk_accessible_update_property() is variadic, so Swift cannot call it. */
+static inline void vv_accessible_set_label(GtkWidget *widget, const char *label) {
+    gtk_accessible_update_property(GTK_ACCESSIBLE(widget),
+                                   GTK_ACCESSIBLE_PROPERTY_LABEL, label, -1);
+}
+
 /*
  * Exact-value accessibility assertion for the Linux GTK smoke test. The public GTK
  * helper is variadic, so Swift cannot call it. A NULL result means the value matched;

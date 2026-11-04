@@ -526,7 +526,9 @@ final class LinuxPanel {
     /// Internal so the Linux GTK smoke test exercises the exact control the row uses.
     static func attachmentRemovalButton(named name: String,
                                         action: @escaping () -> Void) -> GTK.Widget {
-        GTK.button("✕", action)
+        let button = GTK.button("✕", action)
+        GTK.setAccessibleLabel("Remove \(name) attachment", on: button)
+        return button
     }
 
     /// A message from the panel itself — `/help`, or a command this platform lacks —
