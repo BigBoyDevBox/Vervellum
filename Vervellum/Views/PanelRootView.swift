@@ -104,10 +104,17 @@ struct PanelRootView: View {
     /// The measured width of the composer's row, once layout has run.
     @State private var composerRowWidth: CGFloat?
 
-    /// Horizontal room the send button and its spacing take from the composer's row.
-    /// Named rather than inlined: the height estimate silently drifts when the button
-    /// is restyled, and the bug is invisible until the composer wraps a line early.
-    private static let sendButtonReservation: CGFloat = 24 + PanelTheme.Space.small
+    /// Measure wrapped text at the width left by the controls actually on screen.
+    enum ComposerControls: Int {
+        case ask = 1
+        case askAndStop = 2
+    }
+
+    private static let composerButtonSide: CGFloat = 24
+
+    static func composerTextWidth(rowWidth: CGFloat, controls: ComposerControls) -> CGFloat {
+        rowWidth - CGFloat(controls.rawValue) * (composerButtonSide + PanelTheme.Space.small)
+    }
 
     /// Whether the research-level list is open above the composer. See `levelPicker`,
     /// and `backOut` for where it sits in what Escape undoes.
@@ -427,8 +434,9 @@ struct PanelRootView: View {
                     // bridges the first frame, before any layout has happened.
                     .frame(height: ComposerView.height(
                         for: draft,
-                        width: (composerRowWidth ?? estimatedComposerRowWidth)
-                            - Self.sendButtonReservation,
+                        width: Self.composerTextWidth(
+                            rowWidth: composerRowWidth ?? estimatedComposerRowWidth,
+                            controls: engine.isRunning ? .askAndStop : .ask),
                         scale: preferences.textScale))
 
                 // Stop and Ask are both live during a run, side by side, because both
@@ -534,7 +542,8 @@ struct PanelRootView: View {
                 Image(systemName: symbol)
                     .font(PanelTheme.Font.at(11, textScale, weight: .bold))
                     .foregroundStyle(.white)
-                    .frame(width: 24, height: 24)
+                    .frame(width: PanelRootView.composerButtonSide,
+                           height: PanelRootView.composerButtonSide)
                     .background(tint, in: Circle())
             }
             .buttonStyle(.plain)
@@ -1171,6 +1180,10 @@ struct PanelRootView: View {
         notice = nil
         recallIndex = nil
         draft = ""
+        // Reactivation can synchronously return questions (and their in-memory bytes)
+        // from a failed detached run. Clear the old thread's attachments first, so the
+        // callback fills this composer rather than being erased after it returns.
+        attachments = []
         engine.replaceThread(with: thread)
     }
 

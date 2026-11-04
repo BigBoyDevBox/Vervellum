@@ -157,6 +157,7 @@ final class DirectPageReader: PageReading {
     /// One page's text, or an empty string for anything that could not be read.
     private func text(at address: String) async -> String {
         var target = address
+        let started = ProcessInfo.processInfo.systemUptime
         // Decided once, from the address this chain started on, because it is a fact
         // about *provenance*: only a URL the user's own question carried reaches here
         // pointing into private space (the runner drops the search results that do), and
@@ -165,13 +166,16 @@ final class DirectPageReader: PageReading {
         for hop in 0...Self.maxRedirects {
             guard let url = Self.fetchableURL(target) else { return "" }
             do {
-                var request = HTTPTransport.getRequest(url: url)
-                request.timeoutInterval = Self.perPageTimeout
+                // Redirects share the page's budget rather than starting a fresh clock.
+                let remaining = Self.perPageTimeout - (ProcessInfo.processInfo.systemUptime - started)
+                guard remaining > 0 else { return "" }
+                var request = HTTPTransport.getRequest(url: url, timeout: remaining)
                 // A page is a document, not an API. Some sites answer a request that
                 // only accepts JSON with a 406.
                 request.setValue("text/html,text/plain;q=0.9,*/*;q=0.1",
                                  forHTTPHeaderField: "Accept")
-                let (response, data) = try await transport.fetch(request, limit: Self.maxPageBytes)
+                let (response, data) = try await transport.fetch(
+                    request, limit: Self.maxPageBytes, deadline: remaining)
 
                 if (300..<400).contains(response.statusCode) {
                     guard hop < Self.maxRedirects,

@@ -72,8 +72,9 @@ final class RecorderButton: NSButton {
         }
 
         let candidate = binding.updated(from: event)
-        guard candidate.modifiers != 0 else {
-            // A shortcut needs at least one modifier; nudge and keep recording.
+        guard candidate.hasCommandModifier else {
+            // Shift only changes the character being typed; it does not make that
+            // character safe to capture system-wide. Nudge and keep recording.
             NSSound.beep()
             return
         }

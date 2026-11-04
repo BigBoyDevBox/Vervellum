@@ -76,13 +76,17 @@ final class HTTPTransport: NSObject, URLSessionDataDelegate, HTTPTransporting, @
     /// exchange registry, is only unique *within* a session.
     private var session: URLSession!
 
-    override init() {
-        super.init()
-        session = Self.makeSession(delegate: self)
+    override convenience init() {
+        self.init(configuration: .ephemeral)
     }
 
-    private static func makeSession(delegate: URLSessionDelegate) -> URLSession {
-        let configuration = URLSessionConfiguration.ephemeral
+    init(configuration: URLSessionConfiguration) {
+        super.init()
+        session = Self.makeSession(delegate: self, configuration: configuration)
+    }
+
+    private static func makeSession(delegate: URLSessionDelegate,
+                                    configuration: URLSessionConfiguration) -> URLSession {
         // The idle timeout, overridden per request for non-streaming calls.
         // `timeoutIntervalForResource` is deliberately not set — it is stored but never
         // read by FoundationNetworking, so relying on it would be a timeout that
@@ -274,10 +278,28 @@ final class HTTPTransport: NSObject, URLSessionDataDelegate, HTTPTransporting, @
     /// reach a host the user did not configure — while letting `http → https` resolve.
     ///
     /// Only for requests that carry no credentials. Nothing else may use it.
-    func fetch(_ request: URLRequest, limit: Int) async throws -> (HTTPURLResponse, Data) {
-        let (http, body) = try await open(request, limit: limit)
-        let data = try await collect(body, limit: limit)
-        return (http, data)
+    func fetch(_ request: URLRequest, limit: Int,
+               deadline: TimeInterval) async throws -> (HTTPURLResponse, Data) {
+        guard deadline.isFinite, deadline > 0 else { throw ResearchError.timedOut }
+        // An independent clock interrupts silent headers/bodies, not just arriving chunks.
+        do {
+            return try await withThrowingTaskGroup(of: (HTTPURLResponse, Data).self) { group in
+                defer { group.cancelAll() }
+                group.addTask {
+                    let (http, body) = try await self.open(request, limit: limit)
+                    let data = try await self.collect(body, limit: limit, deadline: deadline)
+                    return (http, data)
+                }
+                group.addTask {
+                    try await Task.sleep(for: .seconds(deadline))
+                    throw Self.tookTooLong(deadline)
+                }
+                guard let result = try await group.next() else { throw ResearchError.connectionFailed }
+                return result
+            }
+        } catch {
+            throw Self.sanitized(error)
+        }
     }
 
     /// Sends `request` and yields each `data:` frame's decoded JSON object in order,
@@ -578,7 +600,35 @@ final class HTTPTransport: NSObject, URLSessionDataDelegate, HTTPTransporting, @
     /// stream is read — so in practice this is never asked to match blind.
     private static func matches(_ object: [String: Any], expectedID: Int?) -> Bool {
         guard let expectedID else { return true }
-        return (object["id"] as? Int) == expectedID
+        return isJSONRPCID(object["id"], equalTo: expectedID)
+    }
+
+    /// The Objective-C type encoding of an `NSNumber` holding a JSON boolean.
+    ///
+    /// `NSNumber(value: true)` bridges to `Int` as 1 on both platforms, so a boolean id
+    /// would otherwise compare equal to request 1. JSON-RPC forbids a boolean id, and
+    /// this code only ever sends integers, so refusing the shape is the whole check.
+    private static let booleanObjCType = String(cString: NSNumber(value: true).objCType)
+
+    /// Whether a JSON-RPC reply id is the request id this session sent.
+    ///
+    /// JSON-RPC 2.0 allows the id to be a string or a number, and a server echoes the
+    /// request's own spelling. Comparing only `Int` made every call against a gateway
+    /// that stringifies ids fail as "returned an invalid response" / "the search
+    /// stream ended before returning a result", which reads as a broken provider rather
+    /// than a comparison that was too strict.
+    ///
+    /// Shared with `MCPSession`, which checks the same fact on the buffered-response
+    /// path. A JSON boolean is rejected explicitly: `true` is not a legal id for a
+    /// request this code sent, and a fractional number is rejected too — `intValue`
+    /// would truncate `1.9` to request 1, while JSON-RPC ids are integers.
+    static func isJSONRPCID(_ value: Any?, equalTo expected: Int) -> Bool {
+        if let number = value as? NSNumber {
+            guard String(cString: number.objCType) != Self.booleanObjCType else { return false }
+            return Int(exactly: number.doubleValue) == expected
+        }
+        if let text = value as? String { return Int(text) == expected }
+        return false
     }
 
     /// Joins a frame's `data:` lines with newlines (per the SSE spec) and decodes it.

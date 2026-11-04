@@ -231,6 +231,39 @@ final class ResearchEngineTests: XCTestCase {
         XCTAssertEqual(engine.thread.turns.count, 1)
     }
 
+    /// `/new` detaches a session so it keeps working — which also means Stop on the
+    /// thread now on screen cannot reach it. `cancelAll` is the status item's brake and
+    /// must stop both the visible run and the detached one.
+    func testCancelAllStopsADetachedRunToo() {
+        let scheduler = ManualScheduler()
+        var runners: [ManualRunner] = []
+        let engine = ResearchEngine(
+            preferences: CorePreferences(store: MemorySettingsStore()),
+            secrets: EphemeralSecretStore(), logSink: SilentLog(),
+            makeRunner: { _, _, _ in runners.removeFirst() },
+            deliver: scheduler.enqueue, after: scheduler.after)
+        var latest: [UUID: ResearchThread] = [:]
+        engine.onThreadChanged = { latest[$0.id] = $0 }
+
+        runners = [ManualRunner { }, ManualRunner { }]
+        engine.ask("First")
+        let detachedID = engine.thread.id
+        engine.startNewThread()            // detaches the first session
+        engine.ask("Second")
+        scheduler.drain()
+
+        XCTAssertEqual(engine.runningThreadIDs.count, 2)
+
+        engine.cancelAll()
+        scheduler.drain()
+
+        XCTAssertFalse(engine.isBusy)
+        XCTAssertTrue(engine.runningThreadIDs.isEmpty)
+        XCTAssertEqual(latest[engine.thread.id]?.turns.last?.stage, .cancelled)
+        XCTAssertEqual(latest[detachedID]?.turns.last?.stage, .cancelled,
+                       "a run left on another thread must be reachable by Stop All")
+    }
+
     /// A failed turn usually means a provider, a key or a quota — conditions the next
     /// question would meet unchanged. Running the queue anyway would collect the same
     /// error once per question and bill for each.
@@ -258,25 +291,66 @@ final class ResearchEngineTests: XCTestCase {
         XCTAssertFalse(engine.isRunning)
     }
 
-    /// A new thread puts the conversation away. Its follow-ups go with it rather than
-    /// reappearing in the composer over a thread they were not about.
-    func testANewThreadDropsTheQueueWithoutHandingItBack() {
+    /// A new thread puts the conversation away. Its failed follow-ups stay with that
+    /// conversation and return exactly once when it is opened again — never over the
+    /// unrelated thread now on screen.
+    func testADetachedFailedQueueReturnsOnceWhenItsThreadIsReopened() {
         let first = expectation(description: "Run started")
         let runner = ManualRunner(onStart: StartCounter([first]).record)
         let scheduler = ManualScheduler()
         let engine = makeEngine(runner: runner, scheduler: scheduler)
-        var returned: [String] = []
-        engine.onQueueReturned = { returned = $0.map(\.question) }
+        var returned: [[String]] = []
+        engine.onQueueReturned = { returned.append($0.map(\.question)) }
 
         engine.ask("Running")
         wait(for: [first], timeout: 3)
         engine.ask("Second")
+        engine.ask("Third")
+        let original = engine.thread
 
         engine.startNewThread()
+        let fresh = engine.thread
         XCTAssertTrue(engine.queue.isEmpty)
         XCTAssertTrue(returned.isEmpty)
 
-        runner.finish()
+        let delivered = expectation(description: "Detached failure delivered")
+        scheduler.expectDelivery { delivered.fulfill() }
+        runner.finish(stage: .failed)
+        wait(for: [delivered], timeout: 3)
         scheduler.drain()
+        XCTAssertTrue(returned.isEmpty, "nothing from another thread enters this composer")
+
+        engine.replaceThread(with: original)
+        XCTAssertEqual(returned, [["Second", "Third"]])
+        XCTAssertEqual(engine.thread.id, original.id)
+
+        engine.replaceThread(with: fresh)
+        engine.replaceThread(with: original)
+        XCTAssertEqual(returned.count, 1, "reactivation consumes the hand-back")
+    }
+
+    func testDiscardingAThreadDiscardsItsBufferedQueue() {
+        let first = expectation(description: "Run started")
+        let runner = ManualRunner(onStart: StartCounter([first]).record)
+        let scheduler = ManualScheduler()
+        let engine = makeEngine(runner: runner, scheduler: scheduler)
+        var returned: [[String]] = []
+        engine.onQueueReturned = { returned.append($0.map(\.question)) }
+
+        engine.ask("Running")
+        wait(for: [first], timeout: 3)
+        engine.ask("Waiting")
+        let original = engine.thread
+        engine.startNewThread()
+
+        let delivered = expectation(description: "Detached failure delivered")
+        scheduler.expectDelivery { delivered.fulfill() }
+        runner.finish(stage: .failed)
+        wait(for: [delivered], timeout: 3)
+        scheduler.drain()
+
+        engine.discardSession(for: original.id)
+        engine.replaceThread(with: original)
+        XCTAssertTrue(returned.isEmpty)
     }
 }

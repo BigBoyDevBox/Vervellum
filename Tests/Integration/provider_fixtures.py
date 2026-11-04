@@ -140,9 +140,11 @@ class ProviderFixtures(unittest.TestCase):
         config = root / "config" / "vervellum"
         config.mkdir(parents=True)
         endpoint = f"http://127.0.0.1:{self.server.server_port}"
-        (config / "settings.json").write_text(json.dumps({
+        self.settings_path = config / "settings.json"
+        self.settings_path.write_text(json.dumps({
             "modelEndpoint": endpoint + "/v1", "modelName": "fixture",
-            "searchEndpoint": endpoint + "/mcp", "historyEnabled": False,
+            "searchEndpoint": endpoint + "/mcp", "pageReading": "off",
+            "historyEnabled": False,
         }))
         self.environment = dict(os.environ, XDG_CONFIG_HOME=str(root / "config"),
                                 XDG_DATA_HOME=str(root / "data"), XDG_CACHE_HOME=str(root / "cache"),
@@ -170,6 +172,10 @@ class ProviderFixtures(unittest.TestCase):
         self.assertEqual(result.stdout, "")
         self.assertEqual(result.stderr, 'usage: vervellum --ask "your question"\n')
         self.assertEqual(self.fixture.requests, [])
+
+    def test_fixture_disables_page_reading(self):
+        settings = json.loads(self.settings_path.read_text())
+        self.assertEqual(settings["pageReading"], "off")
 
     def test_complete_pipeline_and_per_call_accept(self):
         result = self.run_question()

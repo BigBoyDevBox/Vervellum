@@ -2,11 +2,11 @@ import Foundation
 
 /// How Vervellum reaches a web-search backend.
 ///
-/// Two kinds, because the two are genuinely different protocols and pretending
+/// The kinds are genuinely different protocols, and pretending
 /// otherwise would mean guessing: an MCP server is a JSON-RPC session that advertises
 /// its own tool schema, while a SearXNG instance is a plain `GET /search?format=json`
 /// with a schema Vervellum has to supply itself. See `SearchBackend`.
-enum SearchProviderKind: String, Codable, CaseIterable, Identifiable, Equatable {
+enum SearchProviderKind: RawRepresentable, Codable, CaseIterable, Identifiable, Hashable {
     /// A Model Context Protocol server over HTTP — z.ai, Brave, Tavily, Exa, or a
     /// SearXNG-to-MCP bridge. The tool and its argument schema are discovered.
     case mcp
@@ -20,7 +20,39 @@ enum SearchProviderKind: String, Codable, CaseIterable, Identifiable, Equatable 
     ///
     /// Its raw value is hyphenated rather than the case name, because it is also what a
     /// human types into `settings.json` on Linux.
-    case kagiCLI = "kagi-cli"
+    case kagiCLI
+
+    /// A kind written by a newer build. It remains inert, but retaining the spelling
+    /// means saving settings in this build does not destroy configuration that a later
+    /// upgrade understands. In particular, it must never be treated as MCP: doing so
+    /// could send a credential to an endpoint whose protocol the user did not select.
+    case unsupported(String)
+
+    typealias RawValue = String
+
+    /// Manual on purpose: only kinds this build can create. `.unsupported` must stay
+    /// absent so pickers never offer it, and each new supported case must be added here.
+    static let allCases: [SearchProviderKind] = [.mcp, .searxng, .kagiCLI]
+
+    /// Never returns nil: unknown spellings become `.unsupported` so a save cannot
+    /// destroy them. Do not use this initializer to validate raw input.
+    init?(rawValue: String) {
+        switch rawValue {
+        case "mcp": self = .mcp
+        case "searxng": self = .searxng
+        case "kagi-cli": self = .kagiCLI
+        default: self = .unsupported(rawValue)
+        }
+    }
+
+    var rawValue: String {
+        switch self {
+        case .mcp: return "mcp"
+        case .searxng: return "searxng"
+        case .kagiCLI: return "kagi-cli"
+        case .unsupported(let rawValue): return rawValue
+        }
+    }
 
     var id: String { rawValue }
 
@@ -29,6 +61,21 @@ enum SearchProviderKind: String, Codable, CaseIterable, Identifiable, Equatable 
         case .mcp: return "MCP server"
         case .searxng: return "SearXNG"
         case .kagiCLI: return "Kagi CLI"
+        case .unsupported(let rawValue):
+            let cleaned = rawValue.unicodeScalars.map { scalar -> String in
+                if CharacterSet.controlCharacters.contains(scalar)
+                    || CharacterSet.newlines.contains(scalar)
+                    || scalar.properties.generalCategory == .format {
+                    return " "
+                }
+                return String(scalar)
+            }.joined().split(whereSeparator: \.isWhitespace).joined(separator: " ")
+            guard !cleaned.isEmpty else { return "Unsupported provider" }
+            let limit = 48
+            let visible = cleaned.count > limit
+                ? String(cleaned.prefix(limit)) + "…"
+                : cleaned
+            return "\(visible) (unsupported)"
         }
     }
 
@@ -41,7 +88,7 @@ enum SearchProviderKind: String, Codable, CaseIterable, Identifiable, Equatable 
         // The Kagi CLI holds its own credential — `kagi auth` puts it in the tool's
         // config, where the user's terminal already reads it. Vervellum demanding a
         // second copy would be asking for a secret it does not need.
-        case .searxng, .kagiCLI: return false
+        case .searxng, .kagiCLI, .unsupported: return false
         }
     }
 
@@ -53,6 +100,7 @@ enum SearchProviderKind: String, Codable, CaseIterable, Identifiable, Equatable 
         // Not a URL at all: for this kind the field holds a command, looked up the way a
         // shell would look it up, or an absolute path to one.
         case .kagiCLI: return ProviderSettings.defaultKagiCommand
+        case .unsupported: return "Choose a supported provider type"
         }
     }
 
@@ -62,6 +110,7 @@ enum SearchProviderKind: String, Codable, CaseIterable, Identifiable, Equatable 
         case .mcp: return "Endpoint"
         case .searxng: return "Address"
         case .kagiCLI: return "Command"
+        case .unsupported: return "Endpoint"
         }
     }
 
@@ -71,6 +120,7 @@ enum SearchProviderKind: String, Codable, CaseIterable, Identifiable, Equatable 
         case .mcp: return "Search key"
         case .searxng: return "Token"
         case .kagiCLI: return "API key"
+        case .unsupported: return "Key"
         }
     }
 
@@ -88,7 +138,20 @@ enum SearchProviderKind: String, Codable, CaseIterable, Identifiable, Equatable 
             return "Optional. `kagi auth` normally holds the credential, and Vervellum "
                 + "never sees it; a key stored here is passed to the tool as "
                 + "KAGI_API_KEY instead."
+        case .unsupported:
+            return "This provider type is not supported by this version. Choose a "
+                + "supported type before researching."
         }
+    }
+
+    init(from decoder: Decoder) throws {
+        let rawValue = try decoder.singleValueContainer().decode(String.self)
+        self = SearchProviderKind(rawValue: rawValue) ?? .unsupported(rawValue)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
     }
 }
 
@@ -143,11 +206,11 @@ struct SearchProfile: Codable, Equatable, Identifiable {
         let id = try container.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
         self.id = id
         name = try container.decodeIfPresent(String.self, forKey: .name) ?? ""
-        // An unrecognised kind reads as `.mcp` rather than failing the whole list: that
-        // is what a settings file written by a build with more backends looks like, and
-        // one unknown entry must not cost the user every other provider.
-        let rawKind = (try? container.decodeIfPresent(String.self, forKey: .kind)) ?? nil
-        kind = rawKind.flatMap { SearchProviderKind(rawValue: $0) } ?? .mcp
+        // An unrecognised kind remains inert rather than failing the whole list or being
+        // mistaken for MCP. That is what a settings file written by a build with more
+        // backends looks like, and one unknown entry must not cost the user every other
+        // provider or send its key through the wrong protocol.
+        kind = (try? container.decodeIfPresent(SearchProviderKind.self, forKey: .kind)) ?? .mcp
         endpoint = try container.decodeIfPresent(String.self, forKey: .endpoint) ?? ""
         keyAccount = try container.decodeIfPresent(String.self, forKey: .keyAccount)
             ?? SecretAccount.derived(from: .searchAPIKey, for: id).rawValue
@@ -546,6 +609,21 @@ struct ProviderSettings: Equatable, Codable {
     /// when search is misconfigured — which is exactly when a user reaches for it.
     func problems(hasModelKey: Bool, hasSearchKey: Bool, requiresSearch: Bool = true) -> [String] {
         var problems: [String] = []
+        // IDs are not presentation metadata: they key the credential snapshot and the
+        // model-client cache. If two rows share one, the later row's key overwrites the
+        // earlier row's dictionary entry and can be sent to the earlier endpoint. This is
+        // the one validation that deliberately examines unselected profiles — a damaged
+        // spare must not turn a selected provider into a credential-crossing path.
+        if Set(modelProfiles.map(\.id)).count != modelProfiles.count {
+            problems.append("Two or more model providers have the same internal identifier. "
+                            + "Remove and re-add one in Settings.")
+        }
+        // A no-search turn never builds or contacts a search backend, so an unrelated
+        // damaged search list must not take away the one mode that can still answer.
+        if requiresSearch, Set(searchProfiles.map(\.id)).count != searchProfiles.count {
+            problems.append("Two or more search providers have the same internal identifier. "
+                            + "Remove and re-add one in Settings.")
+        }
         if modelEndpoint.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             problems.append("The model endpoint is empty.")
         } else if Self.chatCompletionsURL(from: modelEndpoint) == nil {
@@ -575,6 +653,9 @@ struct ProviderSettings: Equatable, Codable {
                 if searchEndpoint.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     problems.append("The Kagi command is empty.")
                 }
+            case .unsupported:
+                problems.append("The selected search provider type is not supported by "
+                                + "this version. Choose a supported provider in Settings.")
             }
             // A SearXNG instance is usually open, or fronted by a proxy rather than a
             // token; demanding a key there would block the most common self-hosted setup.
