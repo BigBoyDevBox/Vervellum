@@ -1179,11 +1179,15 @@ struct PanelRootView: View {
         showsHistory = false
         notice = nil
         recallIndex = nil
-        draft = ""
-        // Reactivation can synchronously return questions (and their in-memory bytes)
-        // from a failed detached run. Clear the old thread's attachments first, so the
-        // callback fills this composer rather than being erased after it returns.
-        attachments = []
+        // The composer is global to the panel, not part of the archived thread. Keep
+        // its words and attachments together while the reader consults earlier work;
+        // clearing only the words silently lost a draft and left its screenshot armed
+        // for whatever question happened to be typed next.
+        // Submitting while the archived thread is open therefore appends that carried
+        // draft and its attachments to the archived thread.
+        // Questions a failed detached run hands back on reactivation arrive
+        // through the composer's seed path, which appends text and attachments,
+        // so they join the carried draft rather than needing it cleared first.
         engine.replaceThread(with: thread)
     }
 
