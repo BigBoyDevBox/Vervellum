@@ -552,13 +552,13 @@ struct ProviderSettings: Equatable, Codable {
         // the one validation that deliberately examines unselected profiles — a damaged
         // spare must not turn a selected provider into a credential-crossing path.
         if Set(modelProfiles.map(\.id)).count != modelProfiles.count {
-            problems.append("Two model providers have the same internal identifier. "
+            problems.append("Two or more model providers have the same internal identifier. "
                             + "Remove and re-add one in Settings.")
         }
         // A no-search turn never builds or contacts a search backend, so an unrelated
         // damaged search list must not take away the one mode that can still answer.
         if requiresSearch, Set(searchProfiles.map(\.id)).count != searchProfiles.count {
-            problems.append("Two search providers have the same internal identifier. "
+            problems.append("Two or more search providers have the same internal identifier. "
                             + "Remove and re-add one in Settings.")
         }
         if modelEndpoint.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {

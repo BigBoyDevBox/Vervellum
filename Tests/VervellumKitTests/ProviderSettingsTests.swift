@@ -231,13 +231,31 @@ final class ProviderSettingsTests: XCTestCase {
                                         selectedSearchID: search.id)
 
         XCTAssertEqual(settings.problems(hasModelKey: true, hasSearchKey: true), [
-            "Two model providers have the same internal identifier. Remove and re-add one in Settings.",
-            "Two search providers have the same internal identifier. Remove and re-add one in Settings.",
+            "Two or more model providers have the same internal identifier. Remove and re-add one in Settings.",
+            "Two or more search providers have the same internal identifier. Remove and re-add one in Settings.",
         ])
         XCTAssertEqual(settings.problems(hasModelKey: true, hasSearchKey: true,
                                          requiresSearch: false), [
-            "Two model providers have the same internal identifier. Remove and re-add one in Settings.",
+            "Two or more model providers have the same internal identifier. Remove and re-add one in Settings.",
         ], "an unused search configuration does not block a no-search turn")
+    }
+
+    /// A damaged search list must not take away the one mode that can still answer.
+    func testDuplicateSearchIDsAloneDoNotBlockANoSearchTurn() {
+        let model = ModelProfile.new(name: "Only", endpoint: "https://a.example.com/v1",
+                                     model: "a")
+        let search = SearchProfile.new(name: "First search", kind: .searxng,
+                                       endpoint: "https://search-a.example.com")
+        var duplicateSearch = SearchProfile.new(name: "Second search", kind: .searxng,
+                                                endpoint: "https://search-b.example.com")
+        duplicateSearch.id = search.id
+
+        let settings = ProviderSettings(modelProfiles: [model], selectedModelID: model.id,
+                                        searchProfiles: [search, duplicateSearch],
+                                        selectedSearchID: search.id)
+
+        XCTAssertTrue(settings.problems(hasModelKey: true, hasSearchKey: true,
+                                        requiresSearch: false).isEmpty)
     }
 
     func testProfilesRoundTripThroughTheEncodedForm() throws {
