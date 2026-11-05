@@ -32,13 +32,17 @@ AppKit, no SwiftUI, no Combine, no `os`, no `Security`, no `CGtk`. Foundation an
 Dispatch only, plus `FoundationNetworking` behind `#if canImport(...)`.
 
 One exception exists, and it is deliberate: `CommandRunner` imports `Darwin` or
-`Glibc` behind `#if canImport` for exactly one symbol, `kill(2)`. That is the C library
-rather than a platform framework — it is present on both platforms, so the portability
-the rule protects is untouched — and Foundation's `Process` offers only `terminate()`,
-a signal a program may ignore. Without the escalation a search command that ignored it
-would keep running with a dispatch thread parked on its pipe forever. Do not read this
-as licence for a second exception: a platform *framework* in `Core/` is still the thing
-the Linux job exists to catch.
+`Glibc` behind `#if canImport`. That is the C library rather than a platform framework
+— it is present on both platforms, so the portability the rule protects is untouched.
+On both platforms it is there for `kill(2)`: Foundation's `Process` offers only
+`terminate()`, a signal a program may ignore, and without the escalation a search
+command that ignored it would keep running, spending the user's quota, after the caller
+was told it had stopped. On Linux it also covers two gaps in corelibs-foundation's
+`Process`: `pthread_sigmask(3)`, because a child otherwise inherits the libdispatch
+worker's blocked signals and `terminate()` does nothing, and a non-reaping `waitid(2)`,
+because Foundation reports an exit only once every descendant has closed a socket the
+child inherited. Do not read this as licence for a second exception: a platform
+*framework* in `Core/` is still the thing the Linux job exists to catch.
 
 That directory is compiled twice: into the macOS app target (through a
 file-system-synchronized group in the Xcode project) and into the `VervellumKit`
