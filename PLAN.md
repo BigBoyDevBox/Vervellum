@@ -525,7 +525,8 @@ point where the interesting decisions stop.
 **Shared** (`Sources/VervellumKit/Core/`, Foundation only): the four-stage pipeline, all
 four prompts, both response parsers, citation validation, source harvesting, evidence
 extraction, context budgeting, the thread document and its archive, markdown parsing,
-slash commands, transcript formatting, secret redaction and the preference schema. That is roughly two thirds of the code and effectively all of the
+slash commands, transcript formatting, secret redaction and the preference
+schema. That is roughly two thirds of the code and effectively all of the
 rules — so a fix to a validation rule, a prompt or a parser reaches both platforms
 without being ported.
 

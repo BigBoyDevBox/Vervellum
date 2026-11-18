@@ -54,12 +54,19 @@ final class HotkeyBindingTests: XCTestCase {
             XCTAssertTrue(HotkeyBinding(keyCode: keyCode, modifiers: command | UInt32(optionKey),
                                         keyLabel: "X", enabled: true).isValid,
                           "⌥⌘\(keyCode) should be usable")
+            XCTAssertTrue(HotkeyBinding(keyCode: keyCode, modifiers: command | UInt32(controlKey),
+                                        keyLabel: "X", enabled: true).isValid,
+                          "⌃⌘\(keyCode) should be usable")
         }
         for keyCode in [KeyCode.three, KeyCode.four, KeyCode.five, KeyCode.six] {
             XCTAssertFalse(HotkeyBinding(keyCode: keyCode,
                                          modifiers: command | UInt32(shiftKey),
                                          keyLabel: "X", enabled: true).isValid,
                            "⇧⌘\(keyCode) should be refused")
+            XCTAssertTrue(HotkeyBinding(keyCode: keyCode,
+                                        modifiers: command | UInt32(shiftKey | optionKey),
+                                        keyLabel: "X", enabled: true).isValid,
+                          "⌥⇧⌘\(keyCode) should be usable")
         }
     }
 

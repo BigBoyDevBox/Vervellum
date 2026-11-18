@@ -26,6 +26,14 @@ final class UpdateAssetSelectionTests: XCTestCase {
         XCTAssertEqual(release.preferredAsset?.name, "Vervellum-1.4.0-macos-universal.zip")
     }
 
+    func testNeverOffersALinuxPackageWhenNoMacOSAssetExists() throws {
+        let release = try decode(assets: [
+            "vervellum_1.4.0_amd64.deb",
+            "vervellum-linux-amd64.flatpak",
+        ])
+        XCTAssertNil(release.preferredAsset)
+    }
+
     private func decode(assets: [String]) throws -> GitHubRelease {
         let list = assets.map { name in
             "{ \"name\": \"\(name)\", \"content_type\": \"application/octet-stream\", "
