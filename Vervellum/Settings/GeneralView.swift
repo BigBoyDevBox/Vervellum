@@ -1,4 +1,5 @@
 import SwiftUI
+import UpdraftKit
 
 /// Panel behaviour, history, and updates.
 struct GeneralView: View {
