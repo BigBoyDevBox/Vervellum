@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import KeycapKit
 
 extension Notification.Name {
     /// Posted after the panel becomes key, so the composer re-asserts focus on every

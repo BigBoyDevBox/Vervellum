@@ -1,4 +1,5 @@
 import AppKit
+import KeycapKit
 
 /// The floating window the research thread lives in.
 ///

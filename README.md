@@ -145,7 +145,10 @@ runs the searches and answers based on current sources.
   and the backdrop are yours to change, live, while the panel is open. A preset is a
   starting point, not a mode. Verdicts keep their symbols and their written labels
   whatever you do to their colours, so the worst you can make it is ugly.
-- **Native.** SwiftUI and AppKit, Liquid Glass on macOS 26, no dependencies.
+- **Native.** SwiftUI and AppKit, Liquid Glass on macOS 26, no third-party
+  dependencies. The updater and global shortcuts come from the author's shared
+  [Updraft](https://github.com/L-K-M/Updraft) and [Keycap](https://github.com/L-K-M/Keycap)
+  packages, as in the sibling apps.
 
 ## Getting started
 

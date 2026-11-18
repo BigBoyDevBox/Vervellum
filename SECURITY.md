@@ -274,8 +274,10 @@ replaced, with a visible count of how many.
   instead; *Snippets only* makes neither request.
 - **Released builds are not signed or notarized.** CI ad-hoc signs the app so it will
   launch on Apple Silicon; there is no Developer ID signature, no notarization, and the
-  Hardened Runtime is not applied to the CI artifact. The in-app updater verifies a
-  downloaded asset's size and nothing else — it does **not** verify a signature — and it
+  Hardened Runtime is not applied to the CI artifact. The in-app updater (the shared
+  Updraft package) accepts a download only over HTTPS from GitHub's hosts, checks its
+  size and, when the release publishes one, its SHA-256 digest, and marks it
+  quarantined so Gatekeeper evaluates it. It does **not** verify a signature, and it
   never installs anything: the file is saved to `~/Downloads` and revealed in the
   Finder, with Gatekeeper applying as usual. Establishing a signed, notarized release
   and an authenticated update chain is the top backlog item.

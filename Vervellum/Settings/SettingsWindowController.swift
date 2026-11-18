@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import UpdraftKit
 
 extension Notification.Name {
     /// Posted when the Settings window closes, so the panel can re-read anything that

@@ -1,6 +1,7 @@
 import XCTest
 import AppKit
 import Carbon.HIToolbox
+import KeycapCore
 @testable import Vervellum
 
 final class HotkeyBindingTests: XCTestCase {
@@ -25,63 +26,78 @@ final class HotkeyBindingTests: XCTestCase {
         XCTAssertEqual(binding.modifierSymbols, "⌃⌥⇧⌘")
     }
 
-    /// A bare key would be captured system-wide, so it is never registerable.
-    func testIsInvalidWithoutModifiersOrWhenDisabled() {
+    /// A disabled binding is never registerable, and so is a bare or Shift-only
+    /// key: Shift-A is ordinary text and must not be captured system-wide.
+    func testIsInvalidWithoutUsableModifiersOrWhenDisabled() {
         XCTAssertFalse(HotkeyBinding(keyCode: 1, modifiers: 0, keyLabel: "S", enabled: true).isValid)
         XCTAssertFalse(HotkeyBinding(keyCode: 2, modifiers: UInt32(cmdKey),
                                      keyLabel: "D", enabled: false).isValid)
-    }
 
-    func testShiftAloneIsNotARegisterableGlobalShortcut() {
         let shifted = HotkeyBinding(keyCode: 0, modifiers: UInt32(shiftKey),
                                     keyLabel: "A", enabled: true)
-
-        XCTAssertFalse(shifted.hasCommandModifier)
         XCTAssertFalse(shifted.isValid)
-
-        for modifier in [cmdKey, controlKey, optionKey] {
-            let binding = HotkeyBinding(keyCode: 0, modifiers: UInt32(modifier),
-                                        keyLabel: "A", enabled: true)
-            XCTAssertTrue(binding.hasCommandModifier)
-            XCTAssertTrue(binding.isValid)
-        }
-
-        let shiftedCommand = HotkeyBinding(keyCode: 0,
-                                           modifiers: UInt32(shiftKey | cmdKey),
-                                           keyLabel: "A", enabled: true)
-        XCTAssertTrue(shiftedCommand.isValid)
 
         let alphaLock = HotkeyBinding(keyCode: 0, modifiers: UInt32(alphaLock),
                                       keyLabel: "A", enabled: true)
         XCTAssertFalse(alphaLock.isValid)
     }
 
-    func testRecordedEventsUseCarbonModifierBitsForValidation() throws {
-        let original = HotkeyBinding(keyCode: 0, modifiers: 0,
-                                     keyLabel: "A", enabled: true)
-        func event(_ modifiers: NSEvent.ModifierFlags,
-                   characters: String = "a") throws -> NSEvent {
-            try XCTUnwrap(NSEvent.keyEvent(with: .keyDown,
-                                           location: .zero,
-                                           modifierFlags: modifiers,
-                                           timestamp: 0,
-                                           windowNumber: 0,
-                                           context: nil,
-                                           characters: characters,
-                                           charactersIgnoringModifiers: "a",
-                                           isARepeat: false,
-                                           keyCode: 0))
+    /// Keycap's family rule: the OS-owned ⌘Q/W/H/M/Space/Tab and ⇧⌘3–6 are
+    /// refused, so a registration cannot swallow them. Adding ⌥ or ⌃ makes the
+    /// same key usable.
+    func testReservedCombosAreRefused() {
+        let command = UInt32(cmdKey)
+        for keyCode in [KeyCode.q, KeyCode.w, KeyCode.h, KeyCode.m, KeyCode.space, KeyCode.tab] {
+            XCTAssertFalse(HotkeyBinding(keyCode: keyCode, modifiers: command,
+                                         keyLabel: "X", enabled: true).isValid,
+                           "⌘\(keyCode) should be refused")
+            XCTAssertTrue(HotkeyBinding(keyCode: keyCode, modifiers: command | UInt32(optionKey),
+                                        keyLabel: "X", enabled: true).isValid,
+                          "⌥⌘\(keyCode) should be usable")
+            XCTAssertTrue(HotkeyBinding(keyCode: keyCode, modifiers: command | UInt32(controlKey),
+                                        keyLabel: "X", enabled: true).isValid,
+                          "⌃⌘\(keyCode) should be usable")
         }
+        for keyCode in [KeyCode.three, KeyCode.four, KeyCode.five, KeyCode.six] {
+            XCTAssertFalse(HotkeyBinding(keyCode: keyCode,
+                                         modifiers: command | UInt32(shiftKey),
+                                         keyLabel: "X", enabled: true).isValid,
+                           "⇧⌘\(keyCode) should be refused")
+            XCTAssertTrue(HotkeyBinding(keyCode: keyCode,
+                                        modifiers: command | UInt32(shiftKey | optionKey),
+                                        keyLabel: "X", enabled: true).isValid,
+                          "⌥⇧⌘\(keyCode) should be usable")
+        }
+    }
 
-        let shiftEvent = try event([.shift], characters: "A")
-        let commandEvent = try event([.command])
-        let controlEvent = try event([.control])
-        let optionEvent = try event([.option])
+    /// Bare function keys are the classic launcher shortcut and never collide
+    /// with typing, so they are usable without a modifier.
+    func testBareFunctionKeysAreUsable() {
+        XCTAssertTrue(HotkeyBinding(keyCode: KeyCode.f5, modifiers: 0,
+                                    keyLabel: "F5", enabled: true).isValid)
+        XCTAssertTrue(HotkeyBinding(keyCode: KeyCode.f12, modifiers: UInt32(shiftKey),
+                                    keyLabel: "F12", enabled: true).isValid)
+    }
 
-        XCTAssertFalse(original.updated(from: shiftEvent).isValid)
-        XCTAssertTrue(original.updated(from: commandEvent).isValid)
-        XCTAssertTrue(original.updated(from: controlEvent).isValid)
-        XCTAssertTrue(original.updated(from: optionEvent).isValid)
+    /// The recorder converts at the boundary: a binding's combo carries the same
+    /// key code and Carbon bits, and rebuilding from it round-trips.
+    func testKeyComboConversionRoundTrips() {
+        let original = HotkeyBinding(keyCode: 49, modifiers: UInt32(cmdKey | optionKey),
+                                     keyLabel: "Space", enabled: true)
+        let combo = original.combo
+        XCTAssertEqual(combo.keyCode, 49)
+        XCTAssertEqual(combo.carbonModifiers, UInt32(cmdKey | optionKey))
+        XCTAssertEqual(HotkeyBinding(combo: combo, keyLabel: original.keyLabel,
+                                     enabled: original.enabled),
+                       original)
+    }
+
+    /// Only the four Carbon hotkey bits are part of a registration; caps lock is
+    /// dropped on the way into a combo.
+    func testComboDropsNonHotkeyModifierBits() {
+        let binding = HotkeyBinding(keyCode: 49, modifiers: UInt32(cmdKey | alphaLock),
+                                    keyLabel: "Space", enabled: true)
+        XCTAssertEqual(binding.combo.carbonModifiers, UInt32(cmdKey))
     }
 
     func testJSONRoundTrip() {
@@ -96,10 +112,10 @@ final class HotkeyBindingTests: XCTestCase {
     }
 
     func testCarbonModifiersMapping() {
-        let modifiers = HotkeyBinding.carbonModifiers(from: [.command, .shift])
-        XCTAssertEqual(modifiers & UInt32(cmdKey), UInt32(cmdKey))
-        XCTAssertEqual(modifiers & UInt32(shiftKey), UInt32(shiftKey))
-        XCTAssertEqual(modifiers & UInt32(controlKey), 0)
-        XCTAssertEqual(modifiers & UInt32(optionKey), 0)
+        let modifiers = HotkeyModifiers(carbonFlags: UInt32(cmdKey | shiftKey | alphaLock))
+        XCTAssertTrue(modifiers.contains(.command))
+        XCTAssertTrue(modifiers.contains(.shift))
+        XCTAssertFalse(modifiers.contains(.control))
+        XCTAssertFalse(modifiers.contains(.option))
     }
 }

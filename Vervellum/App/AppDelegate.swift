@@ -1,6 +1,8 @@
 import AppKit
 import SwiftUI
 import Combine
+import UpdraftKit
+import KeycapKit
 
 extension Notification.Name {
     /// Carries text that should be dropped into the composer, in `userInfo["text"]`.
@@ -27,7 +29,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private lazy var engine = ResearchEngine(preferences: preferences.core, secrets: secrets,
                                              attachmentStore: store.attachmentStore)
     private lazy var updateChecker = UpdateChecker(
-        configuration: .init(owner: "L-K-M", repo: "Vervellum"))
+        configuration: .init(
+            owner: "L-K-M", repo: "Vervellum",
+            // Keep sending `Vervellum/<version>` rather than the package's
+            // bundle-identifier default; GitHub sees the same header as before.
+            userAgent: AppIdentity.userAgent,
+            // A modal alert sits at `.modalPanel` (8) and the research panel at
+            // `.floating` (3), so the alert is already on top. Updraft defaults to
+            // `.floating`, which would put it level with the panel.
+            alertWindowLevel: .modalPanel))
 
     /// Built in `applicationDidFinishLaunching` rather than lazily: its root-view
     /// closure needs to reference the controller itself (to close the panel), which a
@@ -35,8 +45,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var panelController: PanelController?
     private var settingsWindow: SettingsWindowController?
 
-    private let summonHotkey = CarbonHotkey(identifier: 1)
-    private let selectionHotkey = CarbonHotkey(identifier: 2)
+    // Vervellum's own four-character Carbon signature, `'VRVL'`. Keycap's default
+    // is `'KCAP'`; this constant is what recognises this app's hot-key events, so
+    // it must not change.
+    private let summonHotkey = CarbonHotkey(identifier: 1, signature: 0x5652_564C)
+    private let selectionHotkey = CarbonHotkey(identifier: 2, signature: 0x5652_564C)
     private var statusItem: NSStatusItem?
     /// The menu's Stop item. Kept because `autoenablesItems` is off and the item is
     /// enabled by hand when the run state changes.
@@ -219,10 +232,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// (Re)registers both global shortcuts from the current preferences.
     ///
-    /// A combination another app already owns cannot be registered, and Carbon
+    /// A binding the usability rule refuses (a disabled shortcut, an OS-reserved
+    /// chord, a bare non-function key) is never attempted; the Shortcuts pane says
+    /// why. A combination another app already owns cannot be registered, and Carbon
     /// reports that as a status code rather than an error — `CarbonHotkey.register`
-    /// logs it and returns false so the failure is at least diagnosable instead of
-    /// silently doing nothing.
+    /// classifies it as a `HotkeyRegistrationResult` so the failure is at least
+    /// diagnosable instead of silently doing nothing.
     func registerHotkeys() {
         summonHotkey.onPressed = { [weak self] in self?.panelController?.toggle() }
         selectionHotkey.onPressed = { [weak self] in self?.summonWithSelection() }
@@ -231,10 +246,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         summonHotkey.unregister()
         if summon.isValid {
             // The result is the reader's only signal that the shortcut they were
-            // promised actually fires; `CarbonHotkey` logs a status code and nothing
-            // else surfaces it.
+            // promised actually fires; `CarbonHotkey` answers a status code and
+            // nothing else surfaces it.
             preferences.summonHotkeyRegistration =
-                summonHotkey.register(keyCode: summon.keyCode, modifiers: summon.modifiers)
+                summonHotkey.register(keyCode: summon.keyCode, modifiers: summon.modifiers).isRegistered
                     ? .registered : .failed
         } else {
             preferences.summonHotkeyRegistration = .notAttempted
@@ -245,7 +260,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if selection.isValid {
             preferences.researchSelectionHotkeyRegistration =
                 selectionHotkey.register(keyCode: selection.keyCode,
-                                        modifiers: selection.modifiers)
+                                        modifiers: selection.modifiers).isRegistered
                     ? .registered : .failed
         } else {
             preferences.researchSelectionHotkeyRegistration = .notAttempted

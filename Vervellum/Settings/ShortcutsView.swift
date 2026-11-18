@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import KeycapKit
 
 /// The two global shortcuts.
 ///
@@ -63,39 +64,60 @@ struct ShortcutsView: View {
     private func shortcutRow(binding: Binding<HotkeyBinding>,
                              label: String,
                              apply: @escaping (HotkeyBinding) -> Void) -> some View {
-        LabeledContent(label) {
-            HStack(spacing: 10) {
-                Toggle("Enabled", isOn: Binding(
-                    get: { binding.wrappedValue.enabled },
-                    set: { enabled in
-                        var updated = binding.wrappedValue
-                        updated.enabled = enabled
-                        binding.wrappedValue = updated
-                        apply(updated)
-                        onChanged()
-                    }))
-                    .labelsHidden()
-                    .toggleStyle(.switch)
-                    .controlSize(.small)
+        VStack(alignment: .leading, spacing: 4) {
+            LabeledContent(label) {
+                HStack(spacing: 10) {
+                    Toggle("Enabled", isOn: Binding(
+                        get: { binding.wrappedValue.enabled },
+                        set: { enabled in
+                            var updated = binding.wrappedValue
+                            updated.enabled = enabled
+                            binding.wrappedValue = updated
+                            apply(updated)
+                            onChanged()
+                        }))
+                        .labelsHidden()
+                        .toggleStyle(.switch)
+                        .controlSize(.small)
 
-                HotkeyRecorder(binding: Binding(
-                    get: { binding.wrappedValue },
-                    set: { updated in
-                        binding.wrappedValue = updated
-                        apply(updated)
-                        onChanged()
-                    }))
-                    .frame(width: 150, height: 22)
-                    .disabled(!binding.wrappedValue.enabled)
+                    HotkeyRecorder(binding: Binding(
+                        get: { binding.wrappedValue },
+                        set: { updated in
+                            binding.wrappedValue = updated
+                            apply(updated)
+                            onChanged()
+                        }))
+                        .frame(width: 150, height: 22)
+                        .disabled(!binding.wrappedValue.enabled)
+                }
             }
+            usabilityWarning(binding.wrappedValue)
+        }
+    }
+
+    /// Why a stored shortcut is not registered even though the system would take it.
+    ///
+    /// `HotkeyBinding.isValid` applies Keycap's usability rule, so a binding this
+    /// app refuses (an OS-reserved chord, or a bare key that is not a function
+    /// key) is never attempted and the registration state says nothing about it.
+    /// Without this line the shortcut looks configured and silently never fires.
+    @ViewBuilder
+    private func usabilityWarning(_ binding: HotkeyBinding) -> some View {
+        if binding.enabled && !binding.combo.isUsableGlobalHotkey {
+            Label("\(binding.displayString) can't be used as a global shortcut, so Vervellum "
+                  + "doesn't register it. Record a new one.",
+                  systemImage: "exclamationmark.triangle.fill")
+                .font(.system(size: 11))
+                .foregroundStyle(.orange)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 
     /// Why a configured shortcut may still not fire, when the system refused it.
     ///
-    /// The recorder accepts any combination; only `RegisterEventHotKey` can say whether
-    /// another application owns it. A failure here is otherwise invisible: the shortcut
-    /// appears configured and silently never fires.
+    /// A combo the usability rule accepts can still be owned by another app, and only
+    /// `RegisterEventHotKey` can say so. A failure here is otherwise invisible: the
+    /// shortcut appears configured and silently never fires.
     @ViewBuilder
     private func registrationWarning(_ registration: Preferences.HotkeyRegistration,
                                      text: String) -> some View {
