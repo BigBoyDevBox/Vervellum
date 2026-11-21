@@ -1,5 +1,12 @@
 # Vervellum research backlog
 
+Codex pass 2026-11-21: reviewed against `origin/main` at `e90efc3`. Four small
+fixes from this pass are open in PRs #233 (range citations, A62), #234
+(image-retry state, S33), #236 (negative attachment size, A80) and #240 (notice
+tones, R03); their implemented slices are annotated in place and are not repeated
+here. New findings C01–C07 are appended at the end. Concurrent branches and other
+agents' PRs were not inspected during this review.
+
 Panel-UX pass 2026-11-21 (Devin): thirteen focused PRs are open — #204
 (Reduce-Motion caret), #207 and #202 (submit-key hint; S07 implemented slice),
 #211 (history delete confirmation; A28's confirmation slice), #215 (summon
@@ -1330,6 +1337,10 @@ by `sourceCount`, or flag an unparseable digit group as `invalidCitation`.
 Accept: `[1-3]` renders chips for 1, 2, 3 and marks them cited; `[9-2]` and
 `[1-300]` are flagged; code spans stay ignored.
 
+Implemented in open PR #233 (three dash spellings, bounded expansion, reversed and
+oversized ranges flagged, renderer and transcript unchanged). Restore this entry if
+that PR closes unmerged.
+
 Earlier effort: S.
 
 ### A64 · A citation click reveals the source in the panel
@@ -1607,6 +1618,9 @@ recoverable.
 Suggested fix: clamp legacy negative values to zero or discard only the invalid
 attachment while preserving the containing turn, with tolerant-decoding tests.
 
+Implemented in open PR #236 (clamped on decode, record kept). Restore this entry if
+that PR closes unmerged.
+
 ### A81 · Decode declared legacy page encodings accurately
 
 Bugs — nice-to-have
@@ -1709,6 +1723,9 @@ Accept: Test both successful image fallback and a 400 that also fails without im
 
 Where: Sources/VervellumKit/Core/Research/ChatCompletionsClient.swift:302–317. Effort: 2 hours.
 
+Implemented in open PR #234 (both flags set only after the retry answers, with the
+double-failure case pinned). Restore this entry if that PR closes unmerged.
+
 ### R01 · Retain a first-use selection seed
 
 Bugs — nice-to-have
@@ -1744,6 +1761,10 @@ Suggested fix: Map notices to a tone and symbol, reused by native and optionally
 Accept: Retain written labels, uncertainty and accessible distinctions; informational styling must not become a truth seal.
 
 Where: Vervellum/Views/TurnView.swift:248; PangoMarkup.notices.
+
+Implemented in open PR #240 (a shared `NoticeTone` in Core, used by both renderers;
+informational notices use the secondary text colour). Restore this entry if that PR
+closes unmerged.
 
 ### R04 · Normalize common publication-date spellings
 
@@ -2145,3 +2166,137 @@ Two marginal items from the same pass, held here so they are not lost:
 
 Where: `showsLevelPicker` in Vervellum/Views/PanelRootView.swift; `textScale` at
 PanelRootView root. Effort: 1–2 hours.
+
+## Codex pass 2026-11-21
+
+Reviewed against `origin/main` at `e90efc3`. Full read of the macOS front end, the
+shared Core pipeline, persistence, the text layer and the Linux/GTK front end; the
+macOS suite passes (1043 tests) and a Debug build runs without runtime warnings.
+Four small fixes from this pass are open in PRs #233 (range citations), #234
+(image-retry state), #236 (negative attachment size) and #240 (notice tones); their
+slices are annotated in place above and are not repeated here. Concurrent branches
+and other agents' PRs were not inspected.
+
+### C01 · `/clear` leaves the redaction banner on an empty composer
+
+Bugs — nice-to-have
+
+`PanelRootView.newThread()` resets `notice`, `queueFullNote`, `attachments`,
+`draft` and `recallIndex`, but not `redactionNote`
+(`Vervellum/Views/PanelRootView.swift:1170`, state at `:58`, banner at `:354`).
+After `/clear`, `/new` or the header's new-thread button, "N credential-shaped
+values removed from the captured text." keeps showing above an empty composer.
+
+Suggested fix: clear `redactionNote` in `newThread()`. `showsLevelPicker` is reset
+by `submit` but not by the header's new-thread button; both entry points should go
+through the same reset.
+
+Accept: `/clear` by command and by the header button both leave no banner; a
+selection-seeded draft still shows its count.
+
+### C02 · Attaching a file clears whatever notice is showing
+
+Bugs — nice-to-have
+
+`PanelRootView.receive(_:restoring:)` does `notice = nil` whenever an attachment
+is accepted (`Vervellum/Views/PanelRootView.swift:1002`). A "Finish the command
+name" notice, or a refusal from an earlier drop, is discarded by an unrelated
+attachment. The chips are visible on their own; the notice is the only record of
+the other event.
+
+Suggested fix: do not clear `notice` here. If a clear is wanted, clear only the
+attachment-related notices this view itself posts.
+
+Accept: a refusal or command notice survives a later attach; an attach-specific
+notice is still replaced by a newer attach result.
+
+### C03 · `/history` and `/settings` clear the words but leave the bytes armed
+
+General issues — nice-to-have
+
+`submit` handles `.openHistory` and `.openSettings` by setting `draft = ""` and
+nothing else (`Vervellum/Views/PanelRootView.swift:925`). `attachments` survives.
+`openThread` deliberately documents that the composer is global and keeps its
+words and attachments while earlier work is consulted, so persisting across
+History may be intended — but the two commands clear the words and keep the bytes,
+so a screenshot attached for one question silently rides the next one asked from
+History.
+
+Suggested fix: decide it explicitly. If the bytes travel with the draft, clear
+both; if they persist, stop clearing the draft in these two branches. Record the
+decision in the comment beside `openThread`.
+
+Accept: a question asked straight after `/history` either carries the attachment
+deliberately and says so, or does not carry it; the choice is documented.
+
+### C04 · Attachment bytes are written synchronously on the main thread
+
+Performance — nice-to-have
+
+`ResearchSession.start` writes every pending attachment with
+`attachmentStore.write` before appending the turn
+(`Sources/VervellumKit/Core/Research/ResearchSession.swift`, in `start`). `start`
+is reached from `ResearchEngine.ask`, which the panel calls on the main thread, so
+up to 4 × 4 MB of file writes block the UI before the turn exists. The comment
+justifies the synchronous order, and the order is real — the bytes must exist
+before a save names them — but it does not require the write to be on the calling
+thread.
+
+Suggested fix: perform the writes off the main thread and append/publish the turn
+when they finish, keeping the pre-append ordering. `AttachmentStore.sweep`'s grace
+window already covers the gap between a write and the save that names it.
+
+Accept: a 4 × 4 MB attach does not stall the composer; a crash between the write
+and the save still leaves bytes the sweep collects; a failed write still raises
+`attachmentNotStored`.
+
+### C05 · `sendJSON` has no wall-clock deadline on the response head
+
+General issues — nice-to-have (extends A22)
+
+`HTTPTransport.fetch` races a deadline task against the open+collect pair, but
+`sendJSON` awaits `open` with no timer
+(`Sources/VervellumKit/Core/Research/HTTPTransport.swift`). The request's
+`timeoutInterval` is an idle timeout, so a server that accepts the connection and
+never sends headers holds the call for the full 120 s idle allowance rather than
+the exchange deadline the caller passed. MCP and cheap JSON calls use this path.
+
+Suggested fix: give `sendJSON` the same independent clock as `fetch`, covering the
+head and the body, and cancel the URL task when it fires.
+
+Accept: a head that never arrives fails at the caller's deadline; a slow body
+still fails at the same deadline; cancellation still stops the task; no change to
+`fetch`'s behaviour.
+
+### C06 · Header buttons have a fixed hit area that ignores the text-size preference
+
+Visual / accessibility — nice-to-have
+
+`HeaderButton` draws its symbol at `PanelTheme.Font.at(10.5, textScale)` inside a
+fixed `frame(width: 20, height: 18)` (`Vervellum/Views/PanelHeaderView.swift`). At
+140 % text the glyph is 14.7 pt in an 18 pt frame and the touch target stays
+20 × 18 pt, well below the 44 pt guideline. The five controls also crowd at the
+right edge with no padding. Open PR #205 fixes the target size; this entry is the
+scaling half — verify against #205 before implementing.
+
+Suggested fix: scale the frame with `textScale`, or use a minimum 44 pt hit area
+with centre alignment, and keep the glyph centred.
+
+Accept: 140 % text shows no clipped glyph; every header control meets the target
+guideline at both ends of the text-size range.
+
+### C07 · Performance smalls
+
+Performance — nice-to-have
+
+- `TurnView.==` compares the whole turn, including the growing answer and the
+  source/findings arrays, at the coalescer's 10 Hz. A stage/answer-prefix
+  comparison would be cheaper and equally correct for the render decision.
+- `MarkdownBody` re-parses the whole answer on every publish (A20's remainder);
+  `ComposerView.height(for:)` builds a fresh TextKit stack per call (A20/S14).
+- `ThreadLibrary.search` scans every field of every turn per keystroke with no
+  debounce or index (R06).
+- `ResearchEngine.sessions` is never evicted (A83).
+
+These are collected here so a future performance pass has one list; each is
+profiled before it is redesigned.
