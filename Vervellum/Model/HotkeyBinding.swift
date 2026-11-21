@@ -2,8 +2,7 @@ import Carbon.HIToolbox
 import KeycapKit
 
 /// A user-configurable global hotkey: a virtual key code plus Carbon modifier
-/// flags, an on/off switch, and a human label captured at record time (so the
-/// display respects the user's keyboard layout without a keycode→name table).
+/// flags, an on/off switch, and a human label captured at record time.
 /// Persisted as JSON in `UserDefaults`; registered via `CarbonHotkey` (which needs
 /// no permission). See PLAN.md §5.
 ///
@@ -13,7 +12,7 @@ struct HotkeyBinding: Codable, Equatable {
     var keyCode: UInt32
     /// Carbon modifier-flag bits (`cmdKey | optionKey | …`).
     var modifiers: UInt32
-    /// The key's display label, e.g. `"D"`, `"Space"`, `"↩"`.
+    /// The label captured at record time, preserved in JSON for older builds.
     var keyLabel: String
     var enabled: Bool
 
@@ -46,8 +45,8 @@ struct HotkeyBinding: Codable, Equatable {
     /// The modifier glyphs in canonical macOS order (⌃⌥⇧⌘).
     var modifierSymbols: String { combo.modifiers.symbols }
 
-    /// The full shortcut, e.g. `"⌃⌥⌘D"`.
-    var displayString: String { combo.modifiers.symbols + keyLabel }
+    /// Uses the recorder's key naming so the panel hint matches it.
+    var displayString: String { combo.displayString }
 
     // MARK: Persistence
 

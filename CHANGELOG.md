@@ -19,6 +19,7 @@
   recording even with modifiers held, Space or Return starts recording when
   the recorder has focus, held modifiers show while recording, and the
   recorder shows keypad Enter, function, Help and keypad Clear keys by their
-  standard names. A shortcut saved earlier keeps its old key name in the
-  panel's hint until you record it again. The Linux build is unchanged.
+  standard names, and the panel's hint shows the same name, so a shortcut saved
+  earlier matches the recorder without being recorded again. The stored label is
+  preserved for older builds. The Linux build is unchanged.
 - Earlier history lives in the commit log and the GitHub releases.

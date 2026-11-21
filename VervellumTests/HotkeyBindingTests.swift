@@ -2,6 +2,7 @@ import XCTest
 import AppKit
 import Carbon.HIToolbox
 import KeycapCore
+import KeycapKit
 @testable import Vervellum
 
 final class HotkeyBindingTests: XCTestCase {
@@ -77,6 +78,48 @@ final class HotkeyBindingTests: XCTestCase {
                                     keyLabel: "F5", enabled: true).isValid)
         XCTAssertTrue(HotkeyBinding(keyCode: KeyCode.f12, modifiers: UInt32(shiftKey),
                                     keyLabel: "F12", enabled: true).isValid)
+    }
+
+    /// A shortcut saved before Keycap stored the label its own recorder captured,
+    /// which differs from the name Keycap's recorder shows for the same key code:
+    /// keypad Enter was `↩` rather than `⌅`, and non-printing keys fell back to
+    /// `Key <code>` rather than `F5`/`Help`/`⌧`. The hint must show what the
+    /// recorder shows, or the two surfaces disagree for a shortcut the user never
+    /// re-recorded.
+    func testOldSavedLabelsDisplayAsTheRecorderNamesThem() {
+        let modifiers = UInt32(cmdKey | optionKey)
+        let oldFallback = { (keyCode: UInt32) in "Key \(keyCode)" }
+        let cases: [(keyCode: UInt32, oldLabel: String, recorderName: String)] = [
+            (KeyCode.keypadEnter, "↩", "⌅"),
+            (KeyCode.f5, oldFallback(KeyCode.f5), "F5"),
+            (KeyCode.help, oldFallback(KeyCode.help), "Help"),
+            (KeyCode.keypadClear, oldFallback(KeyCode.keypadClear), "⌧"),
+        ]
+
+        for old in cases {
+            let stored = HotkeyBinding(keyCode: old.keyCode, modifiers: modifiers,
+                                       keyLabel: old.oldLabel, enabled: true)
+            let decoded = HotkeyBinding.decode(stored.jsonString, fallback: .defaultSummon)
+
+            // The stored label survives untouched; only the display follows the
+            // recorder's name.
+            XCTAssertEqual(decoded, stored)
+            XCTAssertEqual(decoded.combo.displayString, "⌥⌘\(old.recorderName)")
+            XCTAssertEqual(decoded.displayString, decoded.combo.displayString,
+                           "hint and recorder must agree for saved label \(old.oldLabel)")
+        }
+    }
+
+    /// The recorder names a letter by the current keyboard layout. The hint must
+    /// use that same layout-aware name rather than flattening it to the ANSI
+    /// position, so a letter label still matches the recorder.
+    func testALetterSavedWithItsLayoutCharacterStillMatchesTheRecorder() {
+        let layoutName = KeyNames.displayName(for: KeyCode.z)
+        let stored = HotkeyBinding(keyCode: KeyCode.z,
+                                   modifiers: UInt32(cmdKey | optionKey),
+                                   keyLabel: layoutName, enabled: true)
+        XCTAssertEqual(stored.displayString, stored.combo.displayString)
+        XCTAssertTrue(stored.displayString.hasSuffix(layoutName))
     }
 
     /// The recorder converts at the boundary: a binding's combo carries the same
