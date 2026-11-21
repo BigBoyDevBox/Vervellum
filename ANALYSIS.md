@@ -18,27 +18,29 @@ popover), #225 (history search-field focus on open; A28's focus slice), #226
 provider readiness). Their implemented slices are omitted below; restore the
 entry if a PR closes unmerged.
 
-Reviewed 2026-11-21 against `origin/main` at `d4c9c1c`. The new review's
-actionable findings and experiments were consolidated into the existing entries
-below: A09, A11a, A12, A17, A18a, A23, A28, A64, A77e, R03, N01, N03, N06,
-N10 and N13. The source URL userinfo fix is in open PR #200 and the panel
-header target-size fix is in open PR #205, so their implemented slices are
-omitted from this backlog. Neither PR has been merged at the time of this
-update; restore its entry if it closes unmerged. Verify the header at the
-360-point minimum width and largest text scale in a GUI session. Concurrent
-branches and other agents' PRs were not inspected during this review.
+Two further November 21 reviews used `d4c9c1c`. The first reconciled A09, A11a,
+A12, A17, A18a, A23, A28, A64, A77e, R03, N01, N03, N06, N10 and N13.
+It recorded #200 for source URL userinfo and #205 for panel-header hit targets
+as open at review time. Verify the header at the 360-point minimum width and
+largest text scale in a GUI session. Each review examined its own PRs.
 
-Consolidated 2026-11-04 against `origin/main` at `1924f01`. Completed requirements
-and implemented slices in open PRs are omitted. Earlier context remains in
-[PR-REVIEW.md](PR-REVIEW.md), [fable.md](fable.md) and the
+The second review followed the research evidence through export, history search
+and the native panel. The implementation PRs cover
+[transcript sources](https://github.com/L-K-M/Vervellum/pull/203),
+[history scans](https://github.com/L-K-M/Vervellum/pull/213),
+[Reduce Motion](https://github.com/L-K-M/Vervellum/pull/214),
+[citation layout](https://github.com/L-K-M/Vervellum/pull/219) and
+[deep-round evidence budgeting](https://github.com/L-K-M/Vervellum/pull/221).
+If one closes unmerged, restore its acceptance criteria here. A18a is covered by
+staged credential edits and cleanup-failure reporting. Keycap now owns Escape in
+the recorder, which retires A75c.
+
+The November 4 review was based on `1924f01` and covered changes through #191.
+It verified Sol3 heads independently, excluded uninspected parallel work and
+flagged #138's proposed code-URL exemption as incompatible with the citation
+contract. Earlier context remains in [PR-REVIEW.md](PR-REVIEW.md),
+[fable.md](fable.md) and the
 [historical analysis](https://github.com/L-K-M/Vervellum/blob/0311b35/ANALYSIS.md).
-
-Relevant open PRs through #191 were checked for overlap; only their implemented
-slices are omitted. They are not merged. Restore a requirement from its PR if it
-closes unmerged. Sol3 feature PRs were verified on their individual heads rather
-than as a combined stack; parallel PRs not cited here were not reviewed. #138's
-proposed code-URL exemption conflicts with the citation contract and was flagged
-on that PR.
 
 The nine earlier Sol2 patches passed together: 903 macOS tests with Xcode 26.0.1 on
 macOS 15 Intel; the 839-case Linux suite with the display-dependent GTK test
@@ -146,7 +148,7 @@ Where: Sources/VervellumKit/Core/Store/ThreadArchive.swift:303–337. Earlier ef
 
 Performance problems, stuttering, and jank — important
 
-Open #132 bounds desktop subprocesses, but each synchronous lookup can still stall GTK. Locked-keyring UX, failed keyring deletion and actual read-backend reporting remain unresolved.
+Desktop subprocesses now have time bounds, but each synchronous lookup can still stall GTK. Locked-keyring UX, failed keyring deletion and actual read-backend reporting remain unresolved.
 
 Suggested fix: Acquire credentials asynchronously through the secret service while retaining process bounds. Report deletion failures and read-only environment overrides. Record which backend answered each account; document the existing JSON file backend and which entry points write it.
 
@@ -158,28 +160,15 @@ Where: Sources/VervellumKit/Linux/LinuxSecretStore.swift; LinuxPanel.swift. Earl
 
 General issues — important
 
-After Shift-only bindings are rejected, any Command-, Control-, or Option-modified
-chord remains registerable, including global versions of editing commands such as
-Command-C, Command-V, and Command-Z. Those bindings can steal routine editing across
-macOS, while Option-only character chords still lack an explicit text-composition
-policy. The remaining policy belongs in `HotkeyBinding.swift` and
-`HotkeyRecorder.swift`, before Carbon registration.
+Keycap rejects Shift-only bindings and several system-owned shortcuts. Common editing
+chords such as Command-C, Command-V and Command-Z still need a policy, as do
+Option-only character chords used for text composition. Make the policy change in
+Keycap, release it there, then update the macOS dependency and test the recorder
+and stored bindings in Vervellum.
 
 Suggested fix: reject a documented set of protected editing chords before
 registration, define the Option-only policy explicitly, and test recorder, stored
 preferences, duplicate handling, and Carbon registration together.
-
-### A18a · Make Keychain Clear outcomes match the save model
-
-General issues — important
-
-Clear can appear successful when deletion failed. It also deletes immediately even though the Providers pane promises staged changes until Save; provider removal itself is deferred.
-
-Suggested fix: Propagate sanitized deletion outcomes. Either stage Clear with accountsToDelete until Save, or plainly disclose that Clear is immediate in its help and footnote.
-
-Accept: Denied or failed deletion never reports success. Closing Settings without Save must match the advertised Clear semantics, without confusing provider credential ownership.
-
-Where: Vervellum/Settings/ProvidersView.swift:241–253,247,476,494. Earlier effort: S.
 
 ### A22 · Absolute provider deadlines and the fixture matrix
 
@@ -227,13 +216,10 @@ Where: Vervellum/Views/PanelRootView.swift:1108–1129,1370–1397; ComposerView
 
 Usability: speed, convenience, clarity — important
 
-Labeled, hover-free Delete controls arrive through parallel #146; that finding is
-not duplicated here. What remains of A28: deletion undo and confirmation; focus the
-history search field when History opens and restore composer focus on exit; ↑/↓
-result navigation and Return to open, without intercepting composer editing keys;
-Delete with undo from the keyboard; separate row-action semantics; Open and the
-destructive Delete as distinct, labeled actions in the accessibility tree, not a
-nested hover affordance.
+History rows now have separate Open and Delete buttons. Verify their spoken order
+and labels. Move focus to the search field on entry and back to the composer on
+exit. Add arrow-key navigation, Return to open and keyboard deletion with undo or
+confirmation.
 
 Suggested fix: add an undo/confirmation step to history deletion (coordinate with
 archive coordination from A13/A15-era work already shipped); manage focus on
@@ -266,13 +252,13 @@ Where: Sources/VervellumKit/Core/Research/PageReader.swift; SECURITY.md:98–104
 
 General issues — important
 
-Releases are ad-hoc signed; updates authenticate neither downloaded bytes nor Team ID, and size is checked only after download. Signing needs maintainer-owned credentials.
+Releases use ad-hoc signing. Updraft checks GitHub redirect hosts, the completed file's size and an API-supplied SHA-256 digest when available. Its default session has idle and resource timeouts. A transfer can still exceed its expected size before the file is checked. Developer ID signing requires maintainer-owned credentials.
 
-Suggested fix: adopt Developer ID and notarization, verify signature/Team ID before offering an update, and enforce byte/time caps while downloading. GitHub asset redirects require a separate bounded credential-free policy, not relaxed provider authorization rules.
+Suggested fix: adopt Developer ID and notarization, verify signature/Team ID before offering an update, and enforce a byte cap during download in Updraft. Preserve its credential-free redirect checks and timeouts.
 
 Accept: never present an unauthenticated artifact as verified. Keep unsigned-release and reset-Accessibility-grant limitations explicit. A future apt channel needs signed repository metadata. Denied-Keychain diagnosis is S23.
 
-Where: release workflows; Sources/VervellumKit/Core/Updates/; Vervellum/Updates/. Earlier effort: L.
+Where: release workflows, the pinned Updraft package and Vervellum/App/AppDelegate.swift. Earlier effort: L.
 
 ### A63 · Redact pasted text
 
@@ -398,7 +384,7 @@ Where: Vervellum/Settings/ProvidersView.swift:204,536–549. Earlier effort: S.
 
 General issues — nice-to-have
 
-Open #128 preserves sequential external edits, but cached reads do not live-reload. A damaged or unwritable settings file is reported only on stderr; unsaved in-session changes are not a successful disk save.
+The settings store preserves sequential external edits, but cached reads do not live-reload. A damaged or unwritable settings file is reported only on stderr; unsaved in-session changes are not a successful disk save.
 
 Suggested fix: Expose reload/validation and persistence-error state through the settings service, for example on window focus. Apply valid settings without requiring A30's form first; keep externally repaired JSON authoritative and preserve unreadable bytes.
 
@@ -410,10 +396,12 @@ Where: Sources/VervellumKit/Core/Platform/SettingsStore.swift; Sources/Vervellum
 
 Performance problems, stuttering, and jank — nice-to-have
 
-Coalescing, Equatable turn views and SelectableText exist. Open #156 preserves
+Coalescing, Equatable turn views and SelectableText exist. The Linux renderer preserves
 GTK widgets during answer-only growth; stage, source and notice changes still
 rebuild the thread. Native MarkdownBody still parses the growing answer per
 evaluation, and composer measurement repeats when its inputs have not changed.
+
+Profile a stream containing tables, code and grouped citations with older turns visible. Record main-thread time and snapshot count. Preserve code masking when reusing completed blocks.
 
 Suggested fix: Profile block-level parsing reuse, terminal GTK row identity and
 measurement memoization. Measure queue depth before pre-enqueue coalescing, and
@@ -496,26 +484,14 @@ Where: Vervellum/Views/SourcesView.swift:181–197. Effort: half a day (S19). Hi
 
 Earlier effort: M.
 
-### A26 · Wrap crowded evidence rows
+### A26 · Verify the remaining narrow-panel layouts
 
-Visual issues and layout problems — nice-to-have
-
-The type funnel scales through `Font.at`/`panelTextScale`, the composer is
-measured against the actual clamped width, and #136 reserves the running-controls
-width. Remaining: the verdict-label-plus-citation-chips row in `FindingsView` still
-cannot wrap; many source chips at narrow widths or 140% text have no wrapping
-strategy (B87/S20).
-
-Suggested fix: adaptive rows (wrapping layout or a chip-flow container) that
-preserve every label and action.
-
-Accept: minimum panel width, 140% text, long model/domain/date labels, RTL/CJK,
-many source chips, and short displays show no clipped controls or overflowing
-content; essential information never depends on tiny secondary labels.
-
-Where: Vervellum/Views/FindingsView.swift:52–60. Effort: half a day (S20).
-
-Earlier effort: M.
+[Claim card wrapping](https://github.com/L-K-M/Vervellum/pull/219) covers the
+verdict and citation buttons. Check the remaining label combinations on short
+displays at minimum width and 140% type, including long model, domain and date
+strings, RTL and CJK text. Capture the failing layout before changing it. Every
+essential label and action should stay readable and reachable. Historical B87/S20
+estimate for evidence wrapping was half a day.
 
 ### A27 · Measured contrast and live accessibility observation
 
@@ -527,20 +503,25 @@ measurements of every current theme. Verdict-colored sentences also need checkin
 (PangoMarkup.swift:25) may miss contrast on dark Adwaita; this is unmeasured.
 Evaluate theme-derived foreground alpha, not another fixed compromise.
 Verify an opaque Reduce Transparency fallback, not merely the absence of Liquid
-Glass, and observe transparency changes live; the streaming caret repeats
-indefinitely and some transitions bypass the reduced-motion routes `SourcesView`
-already uses (S25).
+Glass, and observe transparency changes live. [Panel Reduce Motion changes](https://github.com/L-K-M/Vervellum/pull/214)
+cover the writing caret, source hover and Latest overlay. Verify the live setting
+with a running answer and VoiceOver.
 
 Suggested fix: measure presets in light/dark/high-contrast and correct failures
-with semantic or scheme-aware colors; observe the accessibility notifications live;
-route all panel motion through the shared reduced-motion gate, with a static caret
-style.
+with semantic or scheme-aware colors; observe accessibility changes live and check each preset against rendered content.
 
 Accept: measured contrast over bright/dark content and Adwaita themes in both
 appearance schemes; live Reduce Transparency/Reduce Motion switches; meaning stays
 readable without color; GUI QA before claiming any aesthetic improvement.
 
 Where: Vervellum/Views/PanelTheme.swift:171–174; TurnView.swift:228–241,264,341; PanelRootView.swift:300,334. Effort: contrast 1 day (S24), motion half a day (S25). Historical contrast: 8.3 · 8/8/9 · S; motion: 8.0 · 7/9/8 · S; scheme tuning: 6.7 · 6/6/8 · S.
+
+A November 21 hosted FindingsView sample at 360 points and 140% text gave a
+maximum glyph-to-background contrast of 3.83:1 for the small “CLAIMS” heading,
+6.88:1 for “MIXED”, 11.14:1 for the claim and 6.14:1 for its explanation.
+These are sampled bitmap pixels converted to sRGB, including antialiasing, on one
+opaque dark window background. Start with the heading when measuring the resolved
+foreground and background colors across the actual panel presets.
 
 Earlier palette notes: mixed about 2.1:1 and supported about 2.9:1 on light grounds; Linux used #c4630f, #217a4a and #9a6a10 as candidate light-safe hues. Also inspect dark card contrast, a light-mode scrim and an opaque reduced-transparency tint. These are historical estimates/design hypotheses, not fresh measurements.
 
@@ -600,8 +581,7 @@ Historical Linux UI parity: 6.0 · 6/6/6 · M. Earlier effort: L.
 
 Missing features — nice-to-have
 
-Open #154 supplies saved-thread rows, reopen and deletion, but not a history search
-field. The core search exists and #144 extends its fields.
+The GTK panel can list, reopen and delete saved threads. Add a search field using the shared core matcher.
 
 Suggested fix: Add GTK filtering over ThreadLibrary.search, preserving detached
 session identity and the result completeness required by R06.
@@ -1514,18 +1494,6 @@ Accept: Verify double/triple digits, 140% text and long wrapped items.
 
 Where: Vervellum/Views/MarkdownText.swift:387. Earlier effort: S.
 
-### A75c · Use the existing Escape key constant
-
-General issues — nice-to-have
-
-HotkeyRecorder compares keyCode against the literal 53.
-
-Suggested fix: Use the existing named Escape definition in the touched recorder path.
-
-Accept: Keep recording/cancellation behavior unchanged.
-
-Where: Vervellum/Settings/HotkeyRecorder.swift:69. Earlier effort: S.
-
 ### A75d · Avoid repeated login-item status probes
 
 Performance problems, stuttering, and jank — nice-to-have
@@ -1711,6 +1679,13 @@ Accept: Cover clean revisions of invalid drafts, assessment-only invalid referen
 
 Where: Sources/VervellumKit/Core/Research/ResearchRunner.swift:1664,1680–1687,2036–2058; ResearchModels.swift:633–637. Effort: half a day.
 
+Verify attribution after successive rewrites. A regather adopts findings for the new
+answer. A subsequent revision can keep that answer as the draft. Both native panels
+currently tell assistive technology that findings grade the draft in all cases.
+Use one rule for the disclosure hint, notices and transcript heading. Exercise
+regather alone, revise alone, both in sequence, interrupted adoption and legacy
+records. Preserve uncertainty when an older archive lacks enough information.
+
 ### S33 · Confirm image fallback before disabling vision
 
 Bugs — nice-to-have
@@ -1794,7 +1769,7 @@ Where: Sources/VervellumKit/Core/Text/ComposerCommand.swift:136.
 
 Performance problems, stuttering, and jank — nice-to-have
 
-ThreadLibrary scans questions and full answers on each query edit, up to 2,000 threads. The walk is allocation-light, not indexed or debounced. Open #144 adds searchable fields, not an index or debounce.
+ThreadLibrary scans questions and full answers on each query edit, up to 2,000 threads. The matcher also checks findings, limitations, follow-ups and sources. A missing phrase across 200 one-turn threads with 8,200-character answers took 0.56–1.07 seconds per scan in a local debug build on arm64. [The single-scan change](https://github.com/L-K-M/Vervellum/pull/213) shares the result for the rows and empty state. Measure release-build input latency at the default and maximum library sizes before selecting a search strategy.
 
 Suggested fix: Profile a roughly 150 ms debounce or an index with correct invalidation. The concurrent review suggested questions-first with an answer fallback only for a small question set; that changes result completeness and needs an explicit scope decision, not a silent optimization.
 
@@ -1864,8 +1839,9 @@ Where: Sources/VervellumKit/Linux/LinuxPanel.swift:213–225.
 
 Novel, delightful, or quirky ideas worth trying — nice-to-have
 
-Open #142 exposes the saved draft. A changed-passages view could avoid comparing
-two complete walls of text.
+The reader can expand the complete saved draft. Prototype a changed-paragraph view
+that keeps source buttons usable in both versions and retains access to both full texts
+when paragraph alignment is ambiguous.
 
 Suggested fix: Diff draftAnswer against the displayed answer locally, using the
 existing Markdown views. A line-based diff is a starting point, not a claim of
@@ -2160,12 +2136,32 @@ Two marginal items from the same pass, held here so they are not lost:
   the thread area leaves it open. Harmless (the fixed composer never overlaps),
   but a click-away dismiss would match macOS convention.
 - `PanelRootView` reads `preferences.textScale` at the root, so a settings-slider
-  drag republishes the whole tree per tick. The environment value already reaches
-  descendants; reading `\.panelTextScale` at the root would gate the republish on
-  equality. Marginal — profile before touching.
+  drag republishes the whole tree per tick. Profile before changing observation. The root injects the scale for
+  its children, so an environment lookup at the root reads its parent’s value.
+  Isolate scale-dependent chrome in a descendant if profiling warrants it.
 
 Where: `showsLevelPicker` in Vervellum/Views/PanelRootView.swift; `textScale` at
 PanelRootView root. Effort: 1–2 hours.
+
+### H01 · Reveal why a history result matched
+
+HistoryRow shows a title, turn count and age even when the only matching text is
+buried in a finding several turns back. Prototype a single excerpt labeled by
+field and open the thread at the matching turn. Have ThreadLibrary's existing
+search return the match location as part of its walk. Generate the excerpt only
+where it is displayed. Preserve result ordering, normal unfiltered reopening and
+the session identity of detached live threads. Exercise a claim-only hit in an
+older turn, mixed-script input and a cleared query. Measure together with R06.
+
+### H02 · Distinguish retrieved and cited domains in follow-up context
+
+ResearchContext.historyEntry removes old citation numbers, then populates
+`source_domains` from every retrieved source. Its documentation describes these
+as the domains backing the previous answer. Compare payloads for a two-turn
+fixture with an answer citation, an assessment-only source and an unused result.
+Decide whether the following planner needs search coverage separately from
+citation provenance. Name the fields for their actual meaning, retain the budget
+and trimming notices, and keep earlier citation numbers out of subsequent prose.
 
 ## Codex pass 2026-11-21
 
