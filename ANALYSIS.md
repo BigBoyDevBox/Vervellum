@@ -1,5 +1,16 @@
 # Vervellum research backlog
 
+Panel-UX pass 2026-11-21 (Devin): thirteen focused PRs are open — #204
+(Reduce-Motion caret), #207 and #202 (submit-key hint; S07 implemented slice),
+#211 (history delete confirmation; A28's confirmation slice), #215 (summon
+promotes a Settings preview; the visible-panel half of S08), #216 (per-turn
+askedAt timestamp), #217 (status menu names the running question), #218 (Latest
+jump in finished threads), #222 (edit & re-ask), #223 (attachment preview
+popover), #225 (history search-field focus on open; A28's focus slice), #226
+(empty-state attachment hint), #227 (status-item elapsed time), #228 (first-frame
+provider readiness). Their implemented slices are omitted below; restore the
+entry if a PR closes unmerged.
+
 Reviewed 2026-11-21 against `origin/main` at `d4c9c1c`. The new review's
 actionable findings and experiments were consolidated into the existing entries
 below: A09, A11a, A12, A17, A18a, A23, A28, A64, A77e, R03, N01, N03, N06,
@@ -2007,3 +2018,130 @@ Suggested fix: Read queue state when building the menu and observe queue changes
 Accept: Use existing AppDelegate/engine data; no question text or extra provider calls are needed.
 
 Where: Vervellum/App/AppDelegate.swift:387.
+
+### M01 · Do not let notice markdown eat literal filename characters
+
+Bugs — nice-to-have
+
+Attachment refusals and progress notices embed user filenames and are rendered
+through `MarkdownBody` (`NoticesView`). A file named `*draft*.md` or `**bold**.png`
+loses its asterisks to emphasis in the message that explains why it was refused.
+
+Suggested fix: render refusal/progress lines as plain text (the `/help` and `/model`
+notices deliberately use markdown and should keep it), or escape filenames when the
+message is built.
+
+Accept: a filename with `*`, `**`, `_`, `` ` ``, `[` or `#` survives verbatim in
+its refusal notice; the markdown-capable notices still render.
+
+Where: Vervellum/Views/TurnView.swift (`NoticesView`), the refusal message builders
+in `Vervellum/Views/PanelRootView.swift`. Effort: 1 hour.
+
+### M02 · Name the answering model when only one provider is configured
+
+Usability: speed, convenience, clarity — nice-to-have
+
+The composer model chip only appears with `profiles.count > 1`, so a single-provider
+setup cannot see which model answers without opening Settings. The turn footer does
+print it — but only after the fact.
+
+Suggested fix: show a read-only model label on the empty state or beside the level
+chip when exactly one profile exists; keep the picker interactive when there are
+two or more.
+
+Accept: a one-provider user can identify the model before asking; no new picker or
+extra settings surface.
+
+Where: Vervellum/Views/PanelRootView.swift (`modelPicker`). Effort: 1 hour.
+
+### M03 · Show a drop affordance while dragging onto the composer
+
+Usability: speed, convenience, clarity — nice-to-have
+
+`ComposerTextView` accepts file and image drops, but nothing highlights the
+composer as a target — users discover drop support only by trying it. The empty
+state now names the feature; a visual target would complete the affordance.
+
+Suggested fix: have `draggingEntered`/`draggingExited`/`performDragOperation` flip
+a flag that draws an accent ring or tint over the composer (bridge the state into
+SwiftUI via the coordinator, or overlay a border in `ComposerView`).
+
+Accept: the highlight appears only while a valid payload is over the composer and
+clears on exit/completion; no per-frame work added to the streaming path.
+
+Where: Vervellum/Views/ComposerView.swift:341+; Vervellum/Views/PanelRootView.swift
+(composer section). Effort: 2 hours.
+
+### M04 · Tint the panel glass and separate the composer visually
+
+Aesthetics and theming — nice-to-have
+
+The panel uses the untinted `.regular` material/glass and a hairline between
+scrolling content and composer. Against macOS 26 glass this is honest but spare:
+the theme's surface colour never reaches the backdrop, and the composer does not
+read as a distinct surface over a long answer.
+
+Suggested fix: tint the glass subtly with `PanelPalette.surface` (glass APIs accept
+a tint on both NSGlassEffectView and `.glassEffect`), and evaluate a soft top
+shadow on the composer divider. Keep `.floating` level, material fallback, and all
+contrast/adaptation behaviour intact; measure both appearances.
+
+Accept: Increase Contrast and Reduce Transparency still readable; no window-level
+change; screenshots in light and dark.
+
+Where: Vervellum/Views/PanelBackground.swift; Vervellum/Panel/ResearchPanel.swift;
+the composer divider in PanelRootView. Effort: half a day.
+
+### M05 · Show the global hotkey chords in the status menu
+
+Usability: speed, convenience, clarity — nice-to-have
+
+"Ask Vervellum…" and "Research the Selection…" in the status menu carry no hint of
+their registered shortcuts — the single most important interaction in the app is
+undiscoverable from its own menu.
+
+Suggested fix: display the recorded `HotkeyBinding.displayString` beside the items
+(right-aligned text or the key-equivalent column, taking care that assigning
+`keyEquivalent` also makes the chord fire while the menu tracks — same action, but
+verify).
+
+Accept: the menu shows the live configured chords and updates when a shortcut is
+re-recorded; no double invocation.
+
+Where: Vervellum/App/AppDelegate.swift (`makeMenu`). Effort: 1 hour.
+
+### M06 · Cycle threads with ⌘[ / ⌘]
+
+Usability: speed, convenience, clarity — nice-to-have
+
+Keyboard users can open History (⌘Y) but cannot move between threads without the
+pointer; ⌘[ / ⌘] back/forward through history order matches both Safari and the
+panel's existing shortcut vocabulary.
+
+Suggested fix: handle the pair in `ResearchPanel.performKeyEquivalent` like the
+other panel chords, mapping to `openThread` on the previous/next entry in
+`library.threads` order. Coordinate with A28's list-key model and N13's citation
+stepping so the chords do not collide.
+
+Accept: cycles across the visible ordering only while a thread view is shown; no
+interception while the history search field or composer has marked text.
+
+Where: Vervellum/Panel/ResearchPanel.swift (`performKeyEquivalent`);
+Vervellum/Views/PanelRootView.swift (`openThread`). Effort: 2 hours.
+
+### M07 · Panel-UX smalls
+
+General issues — nice-to-have
+
+Two marginal items from the same pass, held here so they are not lost:
+
+- The level picker only dismisses via Escape, its chip, or a selection — clicking
+  the thread area leaves it open. Harmless (the fixed composer never overlaps),
+  but a click-away dismiss would match macOS convention.
+- `PanelRootView` reads `preferences.textScale` at the root, so a settings-slider
+  drag republishes the whole tree per tick. The environment value already reaches
+  descendants; reading `\.panelTextScale` at the root would gate the republish on
+  equality. Marginal — profile before touching.
+
+Where: `showsLevelPicker` in Vervellum/Views/PanelRootView.swift; `textScale` at
+PanelRootView root. Effort: 1–2 hours.
