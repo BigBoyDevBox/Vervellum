@@ -7,8 +7,8 @@ import KeycapKit
 /// Keycap's `ShortcutRecorder` owns the recording rules: Escape cancels, a bare
 /// ⌫ is a no-op (`HotkeyBinding` cannot express "no shortcut"), and a combo that
 /// is not a usable global hotkey beeps and keeps recording. This wrapper is the
-/// boundary: it converts to and from `KeyCombo` and keeps the stored JSON shape,
-/// the `enabled` flag and the `keyLabel` captured at record time unchanged.
+/// boundary: it converts to and from `KeyCombo` and keeps the stored JSON shape
+/// and the `enabled` flag. A new recording stores the label resolved by Keycap.
 struct HotkeyRecorder: View {
     @Binding var binding: HotkeyBinding
 
