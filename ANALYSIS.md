@@ -1,5 +1,15 @@
 # Vervellum research backlog
 
+Reviewed 2026-11-21 against `origin/main` at `d4c9c1c`. The new review's
+actionable findings and experiments were consolidated into the existing entries
+below: A09, A11a, A12, A17, A18a, A23, A28, A64, A77e, R03, N01, N03, N06,
+N10 and N13. The source URL userinfo fix is in open PR #200 and the panel
+header target-size fix is in open PR #205, so their implemented slices are
+omitted from this backlog. Neither PR has been merged at the time of this
+update; restore its entry if it closes unmerged. Verify the header at the
+360-point minimum width and largest text scale in a GUI session. Concurrent
+branches and other agents' PRs were not inspected during this review.
+
 Consolidated 2026-11-04 against `origin/main` at `1924f01`. Completed requirements
 and implemented slices in open PRs are omitted. Earlier context remains in
 [PR-REVIEW.md](PR-REVIEW.md), [fable.md](fable.md) and the
@@ -58,18 +68,6 @@ Plan → Search → Answer → Assess timeline.
 Historical progress options: 8.3 · 9/7/9 · M; live query counts 8.0 · 8/8/8 · S; stage timeline 5.7 · 5/5/7 · S.
 
 Earlier effort: M.
-
-### A11 · Reject credentials in source URLs
-
-Bugs — important
-
-Harvested source URLs can still carry userinfo. Provider-endpoint rejection does not protect URLs that become sources.
-
-Suggested fix: Reject userinfo in the shared source-URL validator before a URL becomes a Source.
-
-Accept: Cover credential-bearing structured and prose URLs without damaging legitimate query punctuation or parentheses.
-
-Where: Sources/VervellumKit/Core/Research/SourceHarvester.swift:240–251. Earlier effort: M.
 
 ### A11a · Keep neighboring search snippets separate
 
