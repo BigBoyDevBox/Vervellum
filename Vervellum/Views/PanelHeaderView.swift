@@ -73,7 +73,9 @@ private struct HeaderButton: View {
             Image(systemName: symbol)
                 .font(PanelTheme.Font.at(10.5, textScale, weight: .medium))
                 .foregroundStyle(tint)
-                .frame(width: 20, height: 18)
+                // The symbol stays compact, but the button itself needs enough area
+                // for a quick pointer hit in a floating panel.
+                .frame(width: 28, height: 28)
                 .background(isHovering ? PanelTheme.Palette.chipFill : .clear,
                             in: RoundedRectangle(cornerRadius: PanelTheme.Radius.chip, style: .continuous))
                 .contentShape(Rectangle())
