@@ -62,11 +62,6 @@ jobs:
         uses: L-K-M/zai-code-review@7e2222dd5ea9f0c36f9c3683118752ab424d2b35
         with:
           ZAI_API_KEY: ${{ env.ZAI_API_KEY }}
-          # Xiaomi MiMo reviews the chunks Z.ai still fails on (rate limits,
-          # outages). An empty MIMO_API_KEY secret disables the fallback.
-          FALLBACK_API_KEY: ${{ secrets.MIMO_API_KEY }}
-          FALLBACK_API_URL: https://token-plan-sgp.xiaomimimo.com/v1/chat/completions
-          FALLBACK_MODEL: mimo-v2.6-pro
           # StepFun step-5-preview reviews the low-risk chunks the classifier routes
           # to the fast tier and deputizes for rate-limited deep chunks; GLM keeps
           # deep routing and escalation. An empty STEPFUN_API_KEY secret keeps the
